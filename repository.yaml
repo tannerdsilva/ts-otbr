@@ -1,3 +1,4 @@
 name: Tanner OpenThread Border Router
-url: http://github.com/tannerdsilva/ts-otbr
+url: https://github.com/tannerdsilva/ts-otbr/tree/master/ts_openthread_border_router
 maintainer: Tanner Silva <t@tannersilva.com>
+arch: ["amd64", "aarch64"]
