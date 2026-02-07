@@ -1,10 +1,10 @@
 ---
 version: 2.16.1
-slug: ts_openthread_border_router
+slug: openthread_border_router
 name: Tanners OpenThread Border Router
 description: OpenThread Border Router add-on that is custom for Tanner Silva
 url: >-
-  https://github.com/tannerdsilva/ts-otbr/tree/master/ts_openthread_border_router
+  https://github.com/tannerdsilva/ts-otbr/tree/master/openthread_border_router
 arch:
   - aarch64
   - amd64
