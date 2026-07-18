@@ -1,7 +1,7 @@
 ---
-version: 3.0.2-tanner-omr-v2
+version: 3.0.2
 breaking_versions: [3.0.0]
-slug: tanners_openthread_border_router
+slug: tanners_openthread_border_router_prefix
 name: Tanners OpenThread Border Router
 description: Tanners OpenThread Border Router app
 url: >-
@@ -23,7 +23,7 @@ privileged:
   - NET_ADMIN
 devices:
   - /dev/net/tun
-image: homeassistant/{arch}-addon-otbr:3.0.2
+image: homeassistant/{arch}-addon-otbr
 init: false
 options:
   device: null
