@@ -32,7 +32,6 @@ options:
   firewall: true
   nat64: false
   beta: false
-  custom_br_ula_prefix: ""
   custom_omr_prefix: ""
 ports:
   8080/tcp: null
@@ -50,6 +49,5 @@ schema:
   firewall: bool
   nat64: bool
   beta: bool?
-  custom_br_ula_prefix: str?
   custom_omr_prefix: str?
 startup: services

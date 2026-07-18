@@ -5,20 +5,6 @@
 # Configure OTBR depending on add-on settings
 # ==============================================================================
 
-# ==============================================================================
-# Custom BR ULA Prefix (parent of all OMR prefixes - most important for stability)
-# ==============================================================================
-if bashio::config.has_value 'custom_br_ula_prefix'; then
-    ULA_PREFIX=$(bashio::config 'custom_br_ula_prefix')
-    bashio::log.info "Setting custom BR ULA prefix: ${ULA_PREFIX}"
-
-    if ot-ctl br ulaprefix set "${ULA_PREFIX}"; then
-        bashio::log.info "✅ BR ULA prefix applied successfully"
-    else
-        bashio::log.error "❌ Failed to set BR ULA prefix"
-    fi
-fi
-
 ot-ctl trel enable
 
 if bashio::config.true 'nat64'; then
@@ -59,12 +45,6 @@ if bashio::config.has_value 'custom_omr_prefix'; then
         # Apply the custom prefix
         if ot-ctl br omrconfig custom "${CUSTOM_PREFIX}" med; then
             bashio::log.info "✅ Successfully applied custom OMR prefix: ${CUSTOM_PREFIX}"
-
-            # Force Thread restart to ensure the network picks it up
-            bashio::log.info "Restarting Thread interface to apply changes..."
-            ot-ctl thread stop
-            sleep 3
-            ot-ctl thread start
         else
             bashio::log.error "❌ Failed to apply custom OMR prefix"
         fi
