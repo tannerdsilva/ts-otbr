@@ -29,7 +29,7 @@ if bashio::config.has_value 'custom_omr_prefix'; then
     if [[ "$CUSTOM_PREFIX" =~ ^fd[0-9a-f:]+::/64$ ]]; then
         # valid ULA /64
         bashio::log.info "Applying custom OMR prefix: ${CUSTOM_PREFIX}"
-        ot-ctl br omrconfig custom "${CUSTOM_PREFIX}" med
+        ot-ctl br omrconfig custom "${CUSTOM_PREFIX}" low
         # ... rest of the code
     else
         bashio::log.warning "Invalid custom_omr_prefix (must be fdxx:...::/64). Ignoring."
@@ -38,14 +38,14 @@ if bashio::config.has_value 'custom_omr_prefix'; then
         bashio::log.info "Applying custom OMR prefix: ${CUSTOM_PREFIX}"
 
         # Apply the custom prefix
-        if ot-ctl br omrconfig custom "${CUSTOM_PREFIX}" med; then
+        if ot-ctl br omrconfig custom "${CUSTOM_PREFIX}" low; then
             bashio::log.info "Custom OMR prefix applied successfully"
 
             # Restart Thread interface to ensure it takes effect
-            bashio::log.info "Restarting Thread interface to apply new prefix..."
-            ot-ctl thread stop
-            sleep 2
-            ot-ctl thread start
+#             bashio::log.info "Restarting Thread interface to apply new prefix..."
+#             ot-ctl thread stop
+#             sleep 2
+#             ot-ctl thread start
         else
             bashio::log.error "Failed to apply custom OMR prefix"
         fi
