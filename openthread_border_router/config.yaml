@@ -1,5 +1,5 @@
 ---
-version: 2.0.0
+version: 2.0.1
 breaking_versions: [2.0.0]
 slug: tanners_openthread_border_router
 name: Tanners OpenThread Border Router
@@ -32,6 +32,7 @@ options:
   firewall: true
   nat64: false
   beta: false
+  custom_br_ula_prefix: ""
   custom_omr_prefix: ""
 ports:
   8080/tcp: null
@@ -49,5 +50,6 @@ schema:
   firewall: bool
   nat64: bool
   beta: bool?
+  custom_br_ula_prefix: str?
   custom_omr_prefix: str?
 startup: services
