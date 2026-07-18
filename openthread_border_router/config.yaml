@@ -23,7 +23,7 @@ privileged:
   - NET_ADMIN
 devices:
   - /dev/net/tun
-image: homeassistant/aarch64-addon-otbr:3.0.2
+image: homeassistant/{arch}-addon-otbr:3.0.2
 init: false
 options:
   device: null
