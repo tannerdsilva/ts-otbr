@@ -46,10 +46,10 @@ if bashio::config.has_value 'custom_omr_prefix'; then
             bashio::log.info "✅ Successfully applied custom OMR prefix: ${CUSTOM_PREFIX}"
 
             # Force Thread restart to ensure the network picks it up
-#             bashio::log.info "Restarting Thread interface to apply changes..."
-#             ot-ctl thread stop
-#             sleep 3
-#             ot-ctl thread start
+            bashio::log.info "Restarting Thread interface to apply changes..."
+            ot-ctl thread stop
+            sleep 3
+            ot-ctl thread start
         else
             bashio::log.error "❌ Failed to apply custom OMR prefix"
         fi

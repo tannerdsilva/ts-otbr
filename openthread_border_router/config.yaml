@@ -1,7 +1,7 @@
 ---
 version: 3.0.2
 breaking_versions: [3.0.0]
-slug: tanners_openthread_border_router_prefix
+slug: tanners_openthread_border_router
 name: Tanners OpenThread Border Router
 description: Tanners OpenThread Border Router app
 url: >-
