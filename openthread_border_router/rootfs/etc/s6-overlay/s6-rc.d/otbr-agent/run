@@ -5,7 +5,7 @@
 # OpenThread BorderRouter start script
 # ==============================================================================
 
-# shellcheck disable=SC1091
+# shellcheck source=./openthread_border_router/rootfs/etc/s6-overlay/scripts/otbr-agent-common
 . /etc/s6-overlay/scripts/otbr-agent-common
 
 declare backbone_if
@@ -13,7 +13,6 @@ declare device
 declare baudrate
 declare flow_control
 declare migrate_flow_control
-declare otbr_log_level
 declare otbr_log_level_int
 declare otbr_rest_listen
 declare otbr_rest_listen_port
@@ -23,7 +22,25 @@ if bashio::config.exists 'autoflash_firmware'; then
     bashio::addon.option 'autoflash_firmware'
 fi
 
-backbone_if="$(bashio::api.supervisor 'GET' '/network/info' '' 'first(.interfaces[] | select (.primary == true)) .interface')"
+backbone_if=""
+
+# Backbone network interface can be configured by user or auto-detected by looking for the primary network interface in the system.
+# If no primary network interface is found, the app will exit with an error and ask the user to configure a backbone network interface in the app configuration.
+if bashio::config.has_value 'backbone_interface'; then
+    backbone_if="$(bashio::config 'backbone_interface')"
+else
+    backbone_if="$(bashio::api.supervisor 'GET' '/network/info' '' 'first(.interfaces[] | select (.primary == true)) .interface // empty')"
+    if [ -z "${backbone_if}" ]; then
+        # If no backbone interface is found, exit with error
+        bashio::exit.nok "No primary network interface found. Please configure a backbone network interface in the apps configuration."
+    fi
+fi
+
+# Check if IPv6 forwarding is enabled
+if [ "$(cat /proc/sys/net/ipv6/conf/all/forwarding)" != "1" ]; then
+    bashio::log.warning "IPv6 routing/forwarding is not enabled! Make sure the Home Assistant host has IPv6 forwarding enabled."
+fi
+
 device=$(bashio::config 'device')
 
 if bashio::config.has_value 'network_device'; then
@@ -41,42 +58,8 @@ else
     migrate_flow_control="none"
 fi
 
-otbr_log_level=$(bashio::string.lower "$(bashio::config otbr_log_level)")
-case "${otbr_log_level}" in
-    debug)
-        otbr_log_level_int="7"
-        ;;
-    info)
-        otbr_log_level_int="6"
-        ;;
-    notice)
-        otbr_log_level_int="5"
-        ;;
-    warning)
-        otbr_log_level_int="4"
-        ;;
-    error)
-        otbr_log_level_int="3"
-        ;;
-    critical)
-        otbr_log_level_int="2"
-        ;;
-    alert)
-        otbr_log_level_int="1"
-        ;;
-    emergency)
-        otbr_log_level_int="0"
-        ;;
-    *)
-        bashio::exit.nok "Unknown otbr_log_level: ${otbr_log_level}"
-        ;;
-esac
-
-# shellcheck disable=SC2086
-if [ -z ${backbone_if} ]; then
-    bashio::log.warning "No primary network interface found! Using static eth0."
-    backbone_if="eth0"
-fi
+otbr_log_level_int="$(otbr_log_level_to_int)" \
+    || bashio::exit.nok "Unknown otbr_log_level: $(bashio::config otbr_log_level)"
 
 # shellcheck disable=SC2015
 mkdir -p /data/thread && ln -sft /var/lib /data/thread || bashio::exit.nok "Could not create directory /var/lib/thread to store Thread data."
@@ -89,45 +72,43 @@ ipset create -exist otbr-ingress-deny-src-swap hash:net family inet6
 ipset create -exist otbr-ingress-allow-dst hash:net family inet6
 ipset create -exist otbr-ingress-allow-dst-swap hash:net family inet6
 
+ip6tables -N "${otbr_forward_ingress_chain}"
+ip6tables -I FORWARD 1 -o "${thread_if}" -j "${otbr_forward_ingress_chain}"
+
+ip6tables -N "${otbr_forward_egress_chain}"
+ip6tables -I FORWARD 2 -i "${thread_if}" -j "${otbr_forward_egress_chain}"
+
 if bashio::config.true 'firewall'; then
     bashio::log.info "Setup OTBR firewall..."
-# shellcheck disable=SC2086,SC2154
-    ip6tables -N $otbr_forward_ingress_chain
-# shellcheck disable=SC2086,SC2154
-    ip6tables -I FORWARD 1 -o $thread_if -j $otbr_forward_ingress_chain
 
-    # shellcheck disable=SC2086
-    ip6tables -A $otbr_forward_ingress_chain -m pkttype --pkt-type unicast -i ${thread_if} -j DROP
-    # shellcheck disable=SC2086
-    ip6tables -A $otbr_forward_ingress_chain -m set --match-set otbr-ingress-deny-src src -j DROP
-    # shellcheck disable=SC2086
-    ip6tables -A $otbr_forward_ingress_chain -m set --match-set otbr-ingress-allow-dst dst -j ACCEPT
-    # shellcheck disable=SC2086
-    ip6tables -A $otbr_forward_ingress_chain -m pkttype --pkt-type unicast -j DROP
-    # shellcheck disable=SC2086
-    ip6tables -A $otbr_forward_ingress_chain -j ACCEPT
+    ip6tables -A "${otbr_forward_ingress_chain}" -m pkttype --pkt-type unicast -i "${thread_if}" -j DROP
+    ip6tables -A "${otbr_forward_ingress_chain}" -m set --match-set otbr-ingress-deny-src src -j DROP
+    ip6tables -A "${otbr_forward_ingress_chain}" -m set --match-set otbr-ingress-allow-dst dst -j ACCEPT
+    ip6tables -A "${otbr_forward_ingress_chain}" -m pkttype --pkt-type unicast -j DROP
+    ip6tables -A "${otbr_forward_ingress_chain}" -j ACCEPT
 
-    # shellcheck disable=SC2086,SC2154
-    ip6tables -N $otbr_forward_egress_chain
-    # shellcheck disable=SC2086
-    ip6tables -I FORWARD 2 -i $thread_if -j $otbr_forward_egress_chain
-    # shellcheck disable=SC2086
-    ip6tables -A $otbr_forward_egress_chain -j ACCEPT
+    ip6tables -A "${otbr_forward_egress_chain}" -j ACCEPT
 else
-    # Make sure ip6tables (as used by Docker) allow IP forwarding
-    ip6tables -P FORWARD ACCEPT
-    # HAOS 9.3 and earlier (for 9.4 accept is the default so this won't do anything)
-    ip6tables-legacy -P FORWARD ACCEPT
+    ip6tables -A "${otbr_forward_ingress_chain}" -j ACCEPT
+
+    ip6tables -A "${otbr_forward_egress_chain}" -j ACCEPT
 fi
 
 if bashio::config.true 'nat64'; then
-    # shellcheck disable=SC2086
-    iptables -t mangle -A PREROUTING -i ${thread_if} -j MARK --set-mark 0x1001
-    iptables -t nat -A POSTROUTING -m mark --mark 0x1001 -j MASQUERADE
-    # shellcheck disable=SC2086
-    iptables -t filter -A FORWARD -o ${backbone_if} -j ACCEPT
-    # shellcheck disable=SC2086
-    iptables -t filter -A FORWARD -i ${backbone_if} -j ACCEPT
+    # Mark Thread traffic in mangle
+    iptables -t mangle -A PREROUTING -i "${thread_if}" -j MARK --set-mark "${otbr_fw_mark}"
+
+    # MASQUERADE marked traffic
+    iptables -t nat -A POSTROUTING -m mark --mark "${otbr_fw_mark}" -j MASQUERADE
+
+    # NAT64 forward chain — jump unconditionally, filter inside
+    iptables -N "${otbr_forward_nat64_chain}"
+    iptables -I FORWARD 1 -j "${otbr_forward_nat64_chain}"
+
+    # Forward marked traffic
+    iptables -A "${otbr_forward_nat64_chain}" -m mark --mark "${otbr_fw_mark}" -o "${backbone_if}" -j ACCEPT
+    # Use conntrack to identify return traffic
+    iptables -A "${otbr_forward_nat64_chain}" -m conntrack --ctstate ESTABLISHED,RELATED -i "${backbone_if}" -o "${thread_if}" -j ACCEPT
 fi
 
 otbr_rest_listen="::"

@@ -1,28 +1,82 @@
 # Changelog
 
+## 3.0.2
+
+- Honor the configured `otbr_log_level` for the OTBR web interface (previously always logged at info level)
+- Bump beta to OTBR POSIX version ec16e396 (tag v2026.07.0)
+
+## 3.0.1
+
+- Backport fix for [CVE-2026-8369](https://github.com/advisories/GHSA-f6vh-g7gh-wh6h) to stable. This only affects users who have enabled NAT64 and use an untrusted network.
+
+## 3.0.0
+
+- Thread 1.4 is now stable and OpenThread's built-in mDNS is now the default
+- The beta toggle has been changed back to stable. If you want to run beta again, please turn it back on.
+- Bump beta to OTBR POSIX version 78d9c289 (2026-05-19 23:38:25 -0700)
+- Bump serialx to 1.8.0
+
+## 2.16.8
+
+- Use regular hostname with "-otbr" suffix in beta mode to make OTBR recognizable
+
+## 2.16.7
+
+- Print a warning if IPv6 routing is not enabled
+
+## 2.16.6
+
+- Fix and improve NAT64 firewall rules
+- Enable recovery mechanism from "radio tx timeout" errors for beta
+- Narrow non-firewall forwarding rules to Thread interface
+
+## 2.16.5
+
+- Add `backbone_interface` option to override the network interface used for IPv6 routing.
+
+## 2.16.4
+
+- Fix race condition during startup if web frontend is enabled
+
+## 2.16.3
+
+- Ignore ephemeral temporary settings files in migration
+
+## 2.16.2
+
+- Fix TREL being disabled by default in beta mode
+
 ## 2.16.1
+
 - Fix listen address of OTBR Web UI
 
 ## 2.16.0
+
 - Add beta toggle to switch between Thread 1.3 (stable) and Thread 1.4 (beta)
 - Beta mode uses OpenThread's built-in mDNS instead of mDNSResponder
 
 ## 2.15.3
+
 - Fix inconsistent startup for adapters that remap hardware flow control pins for firmware flashing.
 
 ## 2.15.2
+
 - Add baudrate list option 1000000 (Nordic Semiconductor nRF Connect SDK firmware)
 
 ## 2.15.1
+
 - Make radio spinel recovery more reliable by clearing source match tables before restoring
 
 ## 2.15.0
+
 - Automatically migrate the active dataset to a new adapter when changing the addon serial port path.
 
 ## 2.14.0
+
 - Remove firmware flashing from the addon, this is now handled by Core 2025.7.0.
 
 ## 2.13.0
+
 - Bump to OTBR POSIX version b067e5ac (2025-01-13 22:32:22 -0500)
 - Bump universal-silabs-flasher to 0.0.28
 - Remove dataset deletion REST API backwards compatibility patch. The minimum Core version for this add-on is now 2023.9.0
@@ -45,10 +99,12 @@
 - Update flasher script to work with Home Assistant Yellow with CM5
 
 ## 2.12.1
+
 - Fix possible race condition between otbr-agent-configure and otbr-agent-rest-discovery
   services causing failed startup ([#3826](https://github.com/home-assistant/addons/issues/3826))
 
 ## 2.12.0
+
 - Bump universal-silabs-flasher to 0.0.23
 - Bump OTBR firmwares to latest versions
 - Bump to OTBR POSIX version b041fa52daa (2024-11-14 08:18:28 -0800)
@@ -56,7 +112,7 @@
 
 ## 2.11.1
 
--  Fix issue with USB TI CC2652 based devices
+- Fix issue with USB TI CC2652 based devices
 
 ## 2.11.0
 

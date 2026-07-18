@@ -2,13 +2,11 @@
 
 ## Installation
 
-Follow these steps to get the app (formerly knowon as add-on) installed on your system:
+Follow these steps to get the app (formerly known as add-on) installed on your system:
 
 1. In Home Assistant, go to **Settings** > **Apps** > **Install app**.
-2. Select the top right menu and **Repository**.
-3. Add "https://github.com/home-assistant/addons" to add the **Home Assistant App Repository for Development** repository.
-4. Find the **OpenThread Border Router** app and select it.
-5. Select the **Install** button.
+2. Find the **OpenThread Border Router** app and select it.
+3. Select the **Install** button.
 
 ## How to use
 
@@ -70,7 +68,8 @@ App configuration:
 | firewall           | Enable OpenThread Border Router firewall to block unnecessary traffic |
 | nat64              | Enable NAT64 to allow Thread devices accessing IPv4 addresses |
 | network_device     | IP address and port to connect to a network-based RCP (see below) |
-| beta               | Enable beta mode with Thread 1.4 and native OpenThread mDNS |
+| beta               | Enable beta mode to run a newer, experimental version of OpenThread Border Router |
+| custom omr prefix (optional) | Force a specific Off-Mesh Routable (OMR) IPv6 prefix instead of letting OTBR auto-generate one on every start. |
 
 > [!WARNING]
 > The OTBR expects the RCP connected radio to be on a reliable link such as
@@ -101,7 +100,7 @@ You have several options to get them answered:
 
 In case you've found a bug, please [open an issue on our GitHub][issue].
 
-[discord]: https://discord.gg/c5DvZ4e
+[discord]: https://www.home-assistant.io/join-chat
 [forum]: https://community.home-assistant.io
 [reddit]: https://reddit.com/r/homeassistant
 [issue]: https://github.com/home-assistant/addons/issues
