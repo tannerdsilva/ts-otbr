@@ -1,0 +1,2 @@
+#!/usr/bin/with-contenv bashio
+bashio::log.info "Custom OMR configuration service finished"
