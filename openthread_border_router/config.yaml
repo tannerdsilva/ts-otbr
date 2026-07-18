@@ -23,7 +23,7 @@ privileged:
   - NET_ADMIN
 devices:
   - /dev/net/tun
-image: tannerdsilva/{arch}-addon-otbr
+image: homeassistant/{arch}-addon-otbr
 init: false
 options:
   device: null
