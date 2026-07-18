@@ -22,32 +22,38 @@ ot-ctl mdns enable
 ot-ctl txpower 6
 
 # ==============================================================================
-# Custom OMR Prefix (stable prefix across restarts)
+# Custom OMR Prefix (stable across restarts)
 # ==============================================================================
 if bashio::config.has_value 'custom_omr_prefix'; then
     CUSTOM_PREFIX=$(bashio::config 'custom_omr_prefix')
-    if [[ "$CUSTOM_PREFIX" =~ ^fd[0-9a-f:]+::/64$ ]]; then
-        # valid ULA /64
-        bashio::log.info "Applying custom OMR prefix: ${CUSTOM_PREFIX}"
-        ot-ctl br omrconfig custom "${CUSTOM_PREFIX}" low
-        # ... rest of the code
+    bashio::log.info "Custom OMR prefix requested: ${CUSTOM_PREFIX}"
+
+    if [[ -z "$CUSTOM_PREFIX" ]]; then
+        bashio::log.info "No custom prefix set — using auto behavior"
     else
-        bashio::log.warning "Invalid custom_omr_prefix (must be fdxx:...::/64). Ignoring."
-    fi
-    if [[ -n "$CUSTOM_PREFIX" ]]; then
-        bashio::log.info "Applying custom OMR prefix: ${CUSTOM_PREFIX}"
+        # Wait for ot-ctl to be ready
+        bashio::log.info "Waiting for ot-ctl to be ready..."
+        for i in {1..40}; do
+            if ot-ctl state >/dev/null 2>&1; then
+                bashio::log.info "ot-ctl is ready (attempt $i)"
+                break
+            fi
+            sleep 1
+        done
 
         # Apply the custom prefix
-        if ot-ctl br omrconfig custom "${CUSTOM_PREFIX}" low; then
-            bashio::log.info "Custom OMR prefix applied successfully"
+        if ot-ctl br omrconfig custom "${CUSTOM_PREFIX}" med; then
+            bashio::log.info "✅ Successfully applied custom OMR prefix: ${CUSTOM_PREFIX}"
 
-            # Restart Thread interface to ensure it takes effect
-#             bashio::log.info "Restarting Thread interface to apply new prefix..."
+            # Force Thread restart to ensure the network picks it up
+#             bashio::log.info "Restarting Thread interface to apply changes..."
 #             ot-ctl thread stop
-#             sleep 2
+#             sleep 3
 #             ot-ctl thread start
         else
-            bashio::log.error "Failed to apply custom OMR prefix"
+            bashio::log.error "❌ Failed to apply custom OMR prefix"
         fi
     fi
+else
+    bashio::log.info "No custom_omr_prefix configured in add-on settings"
 fi
