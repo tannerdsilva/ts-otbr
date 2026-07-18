@@ -1,11 +1,11 @@
 ---
-version: 3.0.2
-breaking_versions: [3.0.0]
-slug: openthread_border_router
-name: OpenThread Border Router
-description: OpenThread Border Router app
+version: 4.0.1
+breaking_versions: [4.0.0]
+slug: tanners_openthread_border_router
+name: Tanners OpenThread Border Router
+description: Tanners OpenThread Border Router app
 url: >-
-  https://github.com/home-assistant/addons/tree/master/openthread_border_router
+  https://github.com/tannerdsilva/ts-otbr/tree/master/openthread_border_router
 arch:
   - aarch64
   - amd64
