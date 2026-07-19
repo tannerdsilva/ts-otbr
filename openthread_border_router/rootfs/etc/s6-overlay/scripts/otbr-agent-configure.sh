@@ -23,32 +23,37 @@ ot-ctl mdns enable
 ot-ctl txpower 6
 
 # ==============================================================================
-# Custom OMR Prefix (stable across restarts)
+# Custom OMR Prefix + Preference
 # ==============================================================================
 if bashio::config.has_value 'custom_omr_prefix'; then
-    CUSTOM_PREFIX=$(bashio::config 'custom_omr_prefix')
-    bashio::log.info "Custom OMR prefix requested: ${CUSTOM_PREFIX}"
+    DESIRED_PREFIX=$(bashio::config 'custom_omr_prefix')
+    PREFERENCE=$(bashio::config 'custom_omr_preference' 'med')   # default to med
 
-    if [[ -z "$CUSTOM_PREFIX" ]]; then
-        bashio::log.info "No custom prefix set — using auto behavior"
-    else
-        # Wait for ot-ctl to be ready
-        bashio::log.info "Waiting for ot-ctl to be ready..."
+    if [[ -n "$DESIRED_PREFIX" ]]; then
+        bashio::log.info "Custom OMR prefix requested: ${DESIRED_PREFIX} (preference: ${PREFERENCE})"
+
+        # Wait until ot-ctl is ready
         for i in {1..40}; do
             if ot-ctl state >/dev/null 2>&1; then
-                bashio::log.info "ot-ctl is ready (attempt $i)"
                 break
             fi
             sleep 1
         done
 
-        # Apply the custom prefix
-        if ot-ctl br omrconfig custom "${CUSTOM_PREFIX}" med; then
-            bashio::log.info "✅ Successfully applied custom OMR prefix: ${CUSTOM_PREFIX}"
+        # Check if already set correctly
+        CURRENT=$(ot-ctl br omrprefix local 2>/dev/null | awk '{print $2}' || true)
+
+        if [[ "$CURRENT" == "$DESIRED_PREFIX" ]]; then
+            bashio::log.info "✅ Custom OMR prefix already set to ${DESIRED_PREFIX}"
         else
-            bashio::log.error "❌ Failed to apply custom OMR prefix"
+            bashio::log.info "Applying custom OMR prefix: ${DESIRED_PREFIX} with preference ${PREFERENCE}"
+
+            if ot-ctl br omrconfig custom "${DESIRED_PREFIX}" "${PREFERENCE}"; then
+                bashio::log.info "✅ Successfully applied custom OMR prefix: ${DESIRED_PREFIX} (${PREFERENCE})"
+                sleep 2
+            else
+                bashio::log.error "❌ Failed to apply custom OMR prefix"
+            fi
         fi
     fi
-else
-    bashio::log.info "No custom_omr_prefix configured in add-on settings"
 fi
