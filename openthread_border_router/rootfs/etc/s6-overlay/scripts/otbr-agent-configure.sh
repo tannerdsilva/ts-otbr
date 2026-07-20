@@ -56,4 +56,20 @@ if bashio::config.has_value 'custom_omr_prefix'; then
             fi
         fi
     fi
+else
+    # Get the Thread network name
+    NETWORK_NAME=$(ot-ctl dataset active 2>/dev/null | grep -oP 'NetworkName: \K.*' || echo "ha-thread-default")
+
+    # Generate a deterministic ULA /64 from the network name
+    HASH=$(echo -n "$NETWORK_NAME" | sha256sum | cut -c1-16)
+    GENERATED_PREFIX="fd${HASH:0:2}:${HASH:2:4}:${HASH:6:4}:${HASH:10:4}::/64"
+
+    bashio::log.info "No custom OMR prefix set. Generating deterministic prefix from network name '${NETWORK_NAME}': ${GENERATED_PREFIX}"
+
+    # Apply it
+    if ot-ctl br omrconfig custom "${GENERATED_PREFIX}" med; then
+        bashio::log.info "✅ Applied deterministic OMR prefix: ${GENERATED_PREFIX}"
+    else
+        bashio::log.error "Failed to apply deterministic OMR prefix"
+    fi
 fi

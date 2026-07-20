@@ -23,6 +23,8 @@ privileged:
   - NET_ADMIN
 devices:
   - /dev/net/tun
+data:
+  - /var/lib/thread
 init: false
 options:
   device: null
