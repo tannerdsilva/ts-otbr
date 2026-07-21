@@ -191,7 +191,7 @@ RUN \
        iproute2 \
        iputils-ping \
        ipset \
-       iptables \
+       nftables \
        libreadline8 \
        libncurses6 \
        libprotobuf-lite32 \

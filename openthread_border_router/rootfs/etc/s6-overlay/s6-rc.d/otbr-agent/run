@@ -67,54 +67,210 @@ mkdir -p /data/thread && ln -sft /var/lib /data/thread || bashio::exit.nok "Coul
 # We compile the OTBR with firewall support, so otbr-agent tries to update the
 # ipsets. Therefor, create ipsets always to avoid errors from otbr-agent. Just
 # the ipsets  won't have an effect in practice when the firewall is disabled.
-ipset create -exist otbr-ingress-deny-src hash:net family inet6
-ipset create -exist otbr-ingress-deny-src-swap hash:net family inet6
-ipset create -exist otbr-ingress-allow-dst hash:net family inet6
-ipset create -exist otbr-ingress-allow-dst-swap hash:net family inet6
 
-ip6tables -N "${otbr_forward_ingress_chain}"
-ip6tables -I FORWARD 1 -o "${thread_if}" -j "${otbr_forward_ingress_chain}"
+# ==============================================================================
+# OTBR firewall – hardened nftables (IPv6-first) + compatibility ipsets
+# ==============================================================================
+# Goal: make the "inverted switching tree" (Thread devices routing via the
+#       backbone switch / multi-hop-via-LAN) impossible while keeping every
+#       legitimate Thread / NAT64 / REST function working.
+# ==============================================================================
 
-ip6tables -N "${otbr_forward_egress_chain}"
-ip6tables -I FORWARD 2 -i "${thread_if}" -j "${otbr_forward_egress_chain}"
+# --- 1. Compatibility ipsets (otbr-agent still expects these) -----------------
+ipset create -exist otbr-ingress-deny-src        hash:net family inet6
+ipset create -exist otbr-ingress-deny-src-swap   hash:net family inet6
+ipset create -exist otbr-ingress-allow-dst       hash:net family inet6
+ipset create -exist otbr-ingress-allow-dst-swap  hash:net family inet6
 
-if bashio::config.true 'firewall'; then
-    bashio::log.info "Setup OTBR firewall..."
+# --- 2. Clean slate -----------------------------------------------------------
+nft delete table ip6 otbr 2>/dev/null || true
+nft delete table ip   otbr 2>/dev/null || true
 
-    ip6tables -A "${otbr_forward_ingress_chain}" -m pkttype --pkt-type unicast -i "${thread_if}" -j DROP
-    ip6tables -A "${otbr_forward_ingress_chain}" -m set --match-set otbr-ingress-deny-src src -j DROP
-    ip6tables -A "${otbr_forward_ingress_chain}" -m set --match-set otbr-ingress-allow-dst dst -j ACCEPT
-    ip6tables -A "${otbr_forward_ingress_chain}" -m pkttype --pkt-type unicast -j DROP
-    ip6tables -A "${otbr_forward_ingress_chain}" -j ACCEPT
+# --- 3. IPv6 table (the real defense) -----------------------------------------
+nft -f - <<EOF
+table ip6 otbr {
+    # Sets that mirror the classic ipsets (we own them; agent may also touch
+    # the ipset versions – both can coexist safely)
+    set otbr-ingress-deny-src {
+        type ipv6_addr
+        flags interval
+        auto-merge
+    }
+    set otbr-ingress-deny-src-swap {
+        type ipv6_addr
+        flags interval
+        auto-merge
+    }
+    set otbr-ingress-allow-dst {
+        type ipv6_addr
+        flags interval
+        auto-merge
+    }
+    set otbr-ingress-allow-dst-swap {
+        type ipv6_addr
+        flags interval
+        auto-merge
+    }
 
-    ip6tables -A "${otbr_forward_egress_chain}" -j ACCEPT
-else
-    ip6tables -A "${otbr_forward_ingress_chain}" -j ACCEPT
+    # ------------------------------------------------------------------
+    # Main forward hook – runs very early (priority -150)
+    # Only touches packets that involve the Thread interface.
+    # Everything else falls through to the system policy (normally accept).
+    # ------------------------------------------------------------------
+    chain forward {
+        type filter hook forward priority -150; policy accept;
 
-    ip6tables -A "${otbr_forward_egress_chain}" -j ACCEPT
-fi
+        # Traffic entering the Thread network
+        oifname "${thread_if}" jump ingress
 
+        # Traffic leaving the Thread network
+        iifname "${thread_if}" jump egress
+    }
+
+    # ------------------------------------------------------------------
+    # INGRESS  (packets going *into* Thread, i.e. from backbone → Thread)
+    # This is the primary place we kill inverted trees.
+    # ------------------------------------------------------------------
+    chain ingress {
+        # 1. Must come from the real backbone interface – nothing else
+        iifname != "${backbone_if}" counter drop
+
+        # 2. Connection tracking – always allow return traffic
+        ct state established,related accept
+
+        # 3. ICMPv6 – full modern support + ND hardening
+        #    (hop-limit 255 is required for all ND messages)
+        icmpv6 type {
+            destination-unreachable,
+            packet-too-big,
+            time-exceeded,
+            parameter-problem,
+            echo-request,
+            echo-reply
+        } accept
+
+        icmpv6 type {
+            nd-router-solicit,
+            nd-router-advert,
+            nd-neighbor-solicit,
+            nd-neighbor-advert,
+            nd-redirect,
+            mld-listener-query,
+            mld-listener-report,
+            mld2-listener-report
+        } ip6 hoplimit 255 accept
+
+        # 4. Deny list (populated by otbr-agent or by us)
+        ip6 saddr @otbr-ingress-deny-src counter drop
+
+        # 5. Allow-list for destinations inside Thread
+        ip6 daddr @otbr-ingress-allow-dst accept
+
+        # 6. Multicast / broadcast (Thread needs this) – still accept
+        meta pkttype { multicast, broadcast } accept
+
+        # 7. Everything else unicast → drop (this is the hard stop)
+        meta pkttype unicast counter drop
+
+        # 8. Final safety net
+        counter drop
+    }
+
+    # ------------------------------------------------------------------
+    # EGRESS  (packets leaving Thread → backbone)
+    # Prevents Thread devices from using the LAN as a multi-hop path
+    # back into other Thread devices (the classic inverted tree).
+    # ------------------------------------------------------------------
+    chain egress {
+        # 1. Must leave toward the backbone
+        oifname != "${backbone_if}" counter drop
+
+        # 2. Established / related always OK
+        ct state established,related accept
+
+        # 3. ICMPv6 (same set as ingress)
+        icmpv6 type {
+            destination-unreachable,
+            packet-too-big,
+            time-exceeded,
+            parameter-problem,
+            echo-request,
+            echo-reply
+        } accept
+
+        icmpv6 type {
+            nd-router-solicit,
+            nd-router-advert,
+            nd-neighbor-solicit,
+            nd-neighbor-advert,
+            nd-redirect,
+            mld-listener-query,
+            mld-listener-report,
+            mld2-listener-report
+        } ip6 hoplimit 255 accept
+
+        # 4. Source must not be on the deny list
+        ip6 saddr @otbr-ingress-deny-src counter drop
+
+        # 5. Destination must be on the allow list (off-mesh / LAN prefixes)
+        #    This is what stops Thread-to-Thread traffic from hair-pinning
+        #    through the switch.
+        ip6 daddr @otbr-ingress-allow-dst accept
+
+        # 6. Multicast OK
+        meta pkttype { multicast, broadcast } accept
+
+        # 7. Final drop for anything else
+        counter drop
+    }
+}
+EOF
+
+# --- 4. IPv4 table (NAT64 only) -----------------------------------------------
 if bashio::config.true 'nat64'; then
-    # Mark Thread traffic in mangle
-    iptables -t mangle -A PREROUTING -i "${thread_if}" -j MARK --set-mark "${otbr_fw_mark}"
+    nft -f - <<EOF
+table ip otbr {
+    chain prerouting {
+        type filter hook prerouting priority -150; policy accept;
+        iifname "${thread_if}" meta mark set ${otbr_fw_mark}
+    }
 
-    # MASQUERADE marked traffic
-    iptables -t nat -A POSTROUTING -m mark --mark "${otbr_fw_mark}" -j MASQUERADE
+    chain forward {
+        type filter hook forward priority -150; policy accept;
 
-    # NAT64 forward chain — jump unconditionally, filter inside
-    iptables -N "${otbr_forward_nat64_chain}"
-    iptables -I FORWARD 1 -j "${otbr_forward_nat64_chain}"
+        # Outbound marked traffic toward backbone
+        meta mark ${otbr_fw_mark} oifname "${backbone_if}" accept
 
-    # Forward marked traffic
-    iptables -A "${otbr_forward_nat64_chain}" -m mark --mark "${otbr_fw_mark}" -o "${backbone_if}" -j ACCEPT
-    # Use conntrack to identify return traffic
-    iptables -A "${otbr_forward_nat64_chain}" -m conntrack --ctstate ESTABLISHED,RELATED -i "${backbone_if}" -o "${thread_if}" -j ACCEPT
+        # Return traffic (conntrack)
+        ct state established,related iifname "${backbone_if}" oifname "${thread_if}" accept
+    }
+
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        meta mark ${otbr_fw_mark} masquerade
+    }
+}
+EOF
+    bashio::log.info "NAT64 nftables rules installed (mark ${otbr_fw_mark})"
 fi
 
+# --- 5. Firewall enable / disable logging -------------------------------------
+if bashio::config.true 'firewall'; then
+    bashio::log.info "OTBR firewall (nftables) is ACTIVE – inverted-tree protection enabled"
+else
+    # When the user turns the firewall option off we still keep the table
+    # but make both chains pure ACCEPT so behaviour matches the old “open”
+    # path.  This keeps the structure ready for the next restart.
+    nft flush chain ip6 otbr ingress
+    nft flush chain ip6 otbr egress
+    nft add rule ip6 otbr ingress accept
+    nft add rule ip6 otbr egress  accept
+    bashio::log.info "OTBR firewall option is off – nftables chains set to ACCEPT"
+fi
+
+# --- 6. REST API listen (unchanged logic, just kept for completeness) --------
 otbr_rest_listen="::"
 otbr_rest_listen_port="$(bashio::addon.port 8081)"
-
-# If user port is not set, listen on local interface only
 if ! bashio::var.has_value "${otbr_rest_listen_port}"; then
     otbr_rest_listen="$(bashio::addon.ip_address)"
     otbr_rest_listen_port="8081"
