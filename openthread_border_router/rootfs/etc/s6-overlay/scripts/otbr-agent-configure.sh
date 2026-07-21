@@ -18,58 +18,99 @@ bashio::log.info "Setting OpenThread mDNS local hostname to ${mdns_localhostname
 ot-ctl mdns localhostname "${mdns_localhostname}"
 ot-ctl mdns enable
 
-# To avoid asymmetric link quality the TX power from the controller should not
-# exceed that of what other Thread routers devices typically use.
+# Keep TX power conservative so we don't create asymmetric links
 ot-ctl txpower 6
 
 # ==============================================================================
-# Custom OMR Prefix + Preference
+# Wait until ot-ctl is ready
+# ==============================================================================
+for i in {1..40}; do
+    if ot-ctl state >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+# ==============================================================================
+# Route preference (applies to external routes published by the BR)
+# ==============================================================================
+ROUTE_PRF=$(bashio::config 'custom_route_preference' 'med')
+bashio::log.info "Setting Border Router route preference to ${ROUTE_PRF}"
+ot-ctl br routeprf "${ROUTE_PRF}" || bashio::log.warning "Failed to set br routeprf"
+
+# ==============================================================================
+# Disable automatic OMR management so we fully control prefixes
+# (this also stops the Routing Manager from injecting a ::/0)
+# ==============================================================================
+bashio::log.info "Disabling automatic OMR prefix management"
+ot-ctl br omrconfig disable || true
+
+# ==============================================================================
+# Custom / deterministic OMR + optional on-link prefix
 # ==============================================================================
 if bashio::config.has_value 'custom_omr_prefix'; then
-    DESIRED_PREFIX=$(bashio::config 'custom_omr_prefix')
-    PREFERENCE=$(bashio::config 'custom_omr_preference' 'med')   # default to med
+    DESIRED_OMR=$(bashio::config 'custom_omr_prefix')
+    OMR_PRF=$(bashio::config 'custom_omr_preference' 'med')
+    DESIRED_ONLINK=$(bashio::config 'custom_onlink_prefix' '')
 
-    if [[ -n "$DESIRED_PREFIX" ]]; then
-        bashio::log.info "Custom OMR prefix requested: ${DESIRED_PREFIX} (preference: ${PREFERENCE})"
+    bashio::log.info "Custom OMR prefix requested: ${DESIRED_OMR} (preference: ${OMR_PRF})"
 
-        # Wait until ot-ctl is ready
-        for i in {1..40}; do
-            if ot-ctl state >/dev/null 2>&1; then
-                break
-            fi
-            sleep 1
-        done
+    # Remove any previous instance of this prefix (idempotent)
+    ot-ctl prefix remove "${DESIRED_OMR}" >/dev/null 2>&1 || true
 
-        # Check if already set correctly
-        CURRENT=$(ot-ctl br omrprefix local 2>/dev/null | awk '{print $2}' || true)
-
-        if [[ "$CURRENT" == "$DESIRED_PREFIX" ]]; then
-            bashio::log.info "✅ Custom OMR prefix already set to ${DESIRED_PREFIX}"
-        else
-            bashio::log.info "Applying custom OMR prefix: ${DESIRED_PREFIX} with preference ${PREFERENCE}"
-
-            if ot-ctl br omrconfig custom "${DESIRED_PREFIX}" "${PREFERENCE}"; then
-                bashio::log.info "✅ Successfully applied custom OMR prefix: ${DESIRED_PREFIX} (${PREFERENCE})"
-                sleep 2
-            else
-                bashio::log.error "❌ Failed to apply custom OMR prefix"
-            fi
-        fi
+    # Add as on-mesh OMR prefix WITHOUT the default-route flag (no ::/0)
+    # Flags: p=preferred, a=SLAAC, o=on-mesh, s=stable
+    if ot-ctl prefix add "${DESIRED_OMR}" paos "${OMR_PRF}"; then
+        bashio::log.info "✅ Added OMR prefix ${DESIRED_OMR} (paos ${OMR_PRF})"
+    else
+        bashio::log.error "❌ Failed to add OMR prefix ${DESIRED_OMR}"
     fi
+
+    if [[ -n "${DESIRED_ONLINK}" ]]; then
+        bashio::log.info "Custom on-link prefix requested: ${DESIRED_ONLINK}"
+        bashio::log.info "Note: local on-link prefix is still owned by the Routing Manager (PIO on AIL)."
+        bashio::log.info "      A deterministic ULA will be used if no better on-link prefix is present."
+        # Future-proofing: if a public CLI setter appears we can add it here.
+    fi
+
 else
-    # Get the Thread network name
+    # -----------------------------------------------------------------
+    # No custom OMR → generate a durable /48 ULA from the network name
+    # then carve a stable /64 OMR from it
+    # -----------------------------------------------------------------
     NETWORK_NAME=$(ot-ctl dataset active 2>/dev/null | grep -oP 'NetworkName: \K.*' || echo "ha-thread-default")
 
-    # Generate a deterministic ULA /64 from the network name
-    HASH=$(echo -n "$NETWORK_NAME" | sha256sum | cut -c1-16)
-    GENERATED_PREFIX="fd${HASH:0:2}:${HASH:2:4}:${HASH:6:4}:${HASH:10:4}::/64"
+    # 48-bit hash → proper ULA /48  (fdXX:XXXX:XXXX::/48)
+    HASH=$(echo -n "${NETWORK_NAME}" | sha256sum | cut -c1-12)
+    ULA_48="fd${HASH:0:2}:${HASH:2:4}:${HASH:6:4}::/48"
+    GENERATED_OMR="${ULA_48%/*}:0::/64"          # first /64 from the /48
 
-    bashio::log.info "No custom OMR prefix set. Generating deterministic prefix from network name '${NETWORK_NAME}': ${GENERATED_PREFIX}"
+    bashio::log.info "No custom OMR prefix set."
+    bashio::log.info "Network name '${NETWORK_NAME}' → durable ULA /48 ${ULA_48}"
+    bashio::log.info "Using OMR /64 ${GENERATED_OMR}"
 
-    # Apply it
-    if ot-ctl br omrconfig custom "${GENERATED_PREFIX}" med; then
-        bashio::log.info "✅ Applied deterministic OMR prefix: ${GENERATED_PREFIX}"
+    ot-ctl prefix remove "${GENERATED_OMR}" >/dev/null 2>&1 || true
+
+    if ot-ctl prefix add "${GENERATED_OMR}" paos med; then
+        bashio::log.info "✅ Applied deterministic OMR prefix: ${GENERATED_OMR}"
     else
-        bashio::log.error "Failed to apply deterministic OMR prefix"
+        bashio::log.error "❌ Failed to apply deterministic OMR prefix"
     fi
 fi
+
+# Publish the local Network Data changes
+if ot-ctl netdata register; then
+    bashio::log.info "✅ Network Data registered"
+else
+    bashio::log.error "❌ netdata register failed"
+fi
+
+# Small settle time
+sleep 2
+
+# Optional visibility
+bashio::log.info "Current local prefixes:"
+ot-ctl prefix || true
+bashio::log.info "Current OMR / on-link view:"
+ot-ctl br omrprefix || true
+ot-ctl br onlinkprefix || true
