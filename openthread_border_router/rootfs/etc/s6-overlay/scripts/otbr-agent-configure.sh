@@ -60,7 +60,7 @@ if bashio::config.has_value 'custom_omr_prefix'; then
 
     # Add as on-mesh OMR prefix WITHOUT the default-route flag (no ::/0)
     # Flags: p=preferred, a=SLAAC, o=on-mesh, s=stable
-    if ot-ctl prefix add "${DESIRED_OMR}" paos "${OMR_PRF}"; then
+    if ot-ctl prefix add "${DESIRED_OMR}" paros "${OMR_PRF}"; then
         bashio::log.info "✅ Added OMR prefix ${DESIRED_OMR} (paos ${OMR_PRF})"
     else
         bashio::log.error "❌ Failed to add OMR prefix ${DESIRED_OMR}"
