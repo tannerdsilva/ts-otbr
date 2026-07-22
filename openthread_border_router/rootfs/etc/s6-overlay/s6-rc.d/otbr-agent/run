@@ -64,7 +64,6 @@ otbr_log_level_int="$(otbr_log_level_to_int)" \
 # shellcheck disable=SC2015
 mkdir -p /data/thread && ln -sft /var/lib /data/thread || bashio::exit.nok "Could not create directory /var/lib/thread to store Thread data."
 
-<<<<<<< HEAD
 # We compile the OTBR with firewall support, so otbr-agent tries to update the
 # ipsets. Therefor, create ipsets always to avoid errors from otbr-agent. Just
 # the ipsets  won't have an effect in practice when the firewall is disabled.
@@ -80,19 +79,6 @@ ipset create -exist otbr-ingress-allow-dst-swap  hash:net family inet6
 nft delete table ip6 otbr 2>/dev/null || true
 nft delete table ip   otbr 2>/dev/null || true
 
-=======
-# ==============================================================================
-# OTBR hardened nftables firewall (IPv6) + ipset compatibility
-# ==============================================================================
-ipset create -exist otbr-ingress-deny-src        hash:net family inet6
-ipset create -exist otbr-ingress-deny-src-swap   hash:net family inet6
-ipset create -exist otbr-ingress-allow-dst       hash:net family inet6
-ipset create -exist otbr-ingress-allow-dst-swap  hash:net family inet6
-
-nft delete table ip6 otbr 2>/dev/null || true
-nft delete table ip   otbr 2>/dev/null || true
-
->>>>>>> dhcp_disable_with_nftables
 nft -f - <<EOF
 table ip6 otbr {
     set otbr-ingress-deny-src {
