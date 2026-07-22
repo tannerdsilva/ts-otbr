@@ -108,11 +108,22 @@ table ip6 otbr {
         iifname "${thread_if}" jump otbr_from_thread
     }
 
-    chain output {
-        type filter hook output priority -150; policy accept;
-        # Explicit isolation: never let the local process emit mDNS onto the Thread radio
-        oifname "${thread_if}" udp dport 5353 ip6 daddr ff02::fb counter drop comment "block local mDNS to Thread mesh"
-    }
+	chain output {
+		type filter hook output priority -150; policy accept;
+	
+		# 1. mDNS (already present) – the main culprit
+		oifname "${thread_if}" udp dport 5353 ip6 daddr ff02::fb counter drop comment "block local mDNS to Thread mesh"
+	
+		# 2. LLMNR (Link-Local Multicast Name Resolution) – Windows / some Linux hosts emit this
+		oifname "${thread_if}" udp dport 5355 meta pkttype multicast counter drop comment "block LLMNR to Thread mesh"
+	
+		# 3. SSDP / UPnP discovery
+		oifname "${thread_if}" udp dport 1900 meta pkttype multicast counter drop comment "block SSDP to Thread mesh"
+	
+		# 4. Kernel/host-generated Router Advertisements on the Thread interface
+		#    (OpenThread itself sends RAs via the stack; host radvd/kernel RAs on wpanX are almost always wrong)
+		oifname "${thread_if}" icmpv6 type nd-router-advert counter drop comment "block host RAs on Thread radio"
+	}
 
     chain otbr_to_thread {
         iifname "${backbone_if}" jump from_backbone_to_thread
