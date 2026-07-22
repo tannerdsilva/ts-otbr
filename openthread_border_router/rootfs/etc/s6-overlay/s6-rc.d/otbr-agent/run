@@ -79,7 +79,7 @@ ipset create -exist otbr-ingress-allow-dst-swap  hash:net family inet6
 nft delete table ip6 otbr 2>/dev/null || true
 nft delete table ip   otbr 2>/dev/null || true
 
-nft -f - <<'EOF'
+nft -f - <<EOF
 table ip6 otbr {
     set otbr-ingress-deny-src {
         type ipv6_addr
@@ -104,9 +104,14 @@ table ip6 otbr {
 
     chain forward {
         type filter hook forward priority -150; policy accept;
-
         oifname "${thread_if}" jump otbr_to_thread
         iifname "${thread_if}" jump otbr_from_thread
+    }
+
+    chain output {
+        type filter hook output priority -150; policy accept;
+        # Explicit isolation: never let the local process emit mDNS onto the Thread radio
+        oifname "${thread_if}" udp dport 5353 ip6 daddr ff02::fb counter drop comment "block local mDNS to Thread mesh"
     }
 
     chain otbr_to_thread {
@@ -138,7 +143,7 @@ table ip6 otbr {
     }
 
     chain from_thread_to_thread {
-        accept   # allow BR-relayed on-mesh traffic (was the killer on large mesh)
+        accept   # allow BR-relayed on-mesh traffic
     }
 
     chain otbr_from_thread {
