@@ -164,8 +164,9 @@ table ip6 otbr {
         } ip6 hoplimit 255 accept
 
         ip6 saddr @otbr-ingress-deny-src counter drop
+        ip6 daddr @otbr-ingress-allow-dst counter drop
         meta pkttype { multicast, broadcast } accept
-        accept   # permissive like original egress (off-mesh from Thread)
+        accept
     }
 }
 EOF
