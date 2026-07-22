@@ -1,6 +1,6 @@
 ---
-version: 2.1.17
-breaking_versions: [2.1.0]
+version: 2.2.1
+breaking_versions: [2.2.0]
 slug: tanners_openthread_border_router
 name: Tanners OpenThread Border Router
 description: Tanners OpenThread Border Router app
@@ -55,5 +55,4 @@ schema:
   custom_omr_preference: list(high|med|low)?
   custom_onlink_prefix: str?
   custom_route_preference: list(high|med|low)?
-
 startup: services

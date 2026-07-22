@@ -64,6 +64,7 @@ otbr_log_level_int="$(otbr_log_level_to_int)" \
 # shellcheck disable=SC2015
 mkdir -p /data/thread && ln -sft /var/lib /data/thread || bashio::exit.nok "Could not create directory /var/lib/thread to store Thread data."
 
+<<<<<<< HEAD
 # We compile the OTBR with firewall support, so otbr-agent tries to update the
 # ipsets. Therefor, create ipsets always to avoid errors from otbr-agent. Just
 # the ipsets  won't have an effect in practice when the firewall is disabled.
@@ -79,6 +80,19 @@ ipset create -exist otbr-ingress-allow-dst-swap  hash:net family inet6
 nft delete table ip6 otbr 2>/dev/null || true
 nft delete table ip   otbr 2>/dev/null || true
 
+=======
+# ==============================================================================
+# OTBR hardened nftables firewall (IPv6) + ipset compatibility
+# ==============================================================================
+ipset create -exist otbr-ingress-deny-src        hash:net family inet6
+ipset create -exist otbr-ingress-deny-src-swap   hash:net family inet6
+ipset create -exist otbr-ingress-allow-dst       hash:net family inet6
+ipset create -exist otbr-ingress-allow-dst-swap  hash:net family inet6
+
+nft delete table ip6 otbr 2>/dev/null || true
+nft delete table ip   otbr 2>/dev/null || true
+
+>>>>>>> dhcp_disable_with_nftables
 nft -f - <<EOF
 table ip6 otbr {
     set otbr-ingress-deny-src {
@@ -211,28 +225,6 @@ else
     nft flush chain ip6 otbr from_backbone_to_thread
     nft add rule ip6 otbr from_backbone_to_thread accept
     bashio::log.info "OTBR firewall disabled — from-backbone-to-Thread set to ACCEPT"
-fi
-
-# NAT64 (unchanged, still correct)
-if bashio::config.true 'nat64'; then
-    nft -f - <<EOF
-table ip otbr {
-    chain prerouting {
-        type filter hook prerouting priority -150; policy accept;
-        iifname "${thread_if}" meta mark set ${otbr_fw_mark}
-    }
-    chain forward {
-        type filter hook forward priority -150; policy accept;
-        meta mark ${otbr_fw_mark} oifname "${backbone_if}" accept
-        ct state established,related iifname "${backbone_if}" oifname "${thread_if}" accept
-    }
-    chain postrouting {
-        type nat hook postrouting priority srcnat; policy accept;
-        meta mark ${otbr_fw_mark} masquerade
-    }
-}
-EOF
-    bashio::log.info "NAT64 nftables rules installed"
 fi
 
 # REST listen logic (unchanged)

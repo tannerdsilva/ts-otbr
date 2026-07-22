@@ -31,7 +31,7 @@ RUN \
         build-essential \
         ninja-build \
         cmake \
-        iptables \
+        nftables \
         libjsoncpp-dev \
         libnetfilter-queue-dev \
         nodejs \
@@ -120,7 +120,7 @@ RUN \
         build-essential \
         ninja-build \
         cmake \
-        iptables \
+        nftables \
         libjsoncpp-dev \
         libnetfilter-queue-dev \
         nodejs \
