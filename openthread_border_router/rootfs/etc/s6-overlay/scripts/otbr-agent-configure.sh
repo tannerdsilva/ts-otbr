@@ -2,109 +2,139 @@
 # shellcheck shell=bash
 
 # ==============================================================================
-# Configure OTBR – DHCPv6-PD driven OMR prefix
+# Helper: run an ot-ctl command and return success only when it prints "Done"
 # ==============================================================================
+otctl() {
+    local output
+    output=$(ot-ctl "$@" 2>&1)
+    local rc=$?
 
-ot-ctl trel enable
+    # Success only if exit code is 0 AND the reply contains "Done"
+    if [[ $rc -eq 0 && "$output" == *"Done"* && "$output" != *"Error"* ]]; then
+        echo "$output"
+        return 0
+    fi
 
-if bashio::config.true 'nat64'; then
-    bashio::log.info "Enabling NAT64."
-    ot-ctl nat64 enable
-    ot-ctl dns server upstream enable
-fi
-
-mdns_localhostname="$(hostname)-otbr"
-bashio::log.info "Setting OpenThread mDNS local hostname to ${mdns_localhostname}."
-ot-ctl mdns localhostname "${mdns_localhostname}"
-ot-ctl mdns enable
-
-# Keep TX power conservative so we don't create asymmetric links
-ot-ctl txpower 6
+    # Failure – show the real error
+    echo "$output" >&2
+    return 1
+}
 
 # ==============================================================================
-# Wait until ot-ctl is ready
+# Wait until the Border Routing Manager is ready
 # ==============================================================================
-for i in {1..40}; do
-    if ot-ctl state >/dev/null 2>&1; then
-        break
+bashio::log.info "Waiting for OpenThread Border Routing Manager to become ready..."
+
+READY=false
+for i in {1..60}; do
+    # First make sure the basic CLI is alive
+    if ! ot-ctl state >/dev/null 2>&1; then
+        sleep 1
+        continue
+    fi
+
+    # Now wait until a Border-Routing command actually works
+    if ot-ctl br state >/dev/null 2>&1; then
+        # Extra safety: also check that omrprefix responds without InvalidCommand
+        if ot-ctl br omrprefix >/dev/null 2>&1; then
+            READY=true
+            break
+        fi
+    fi
+
+    if [[ $((i % 5)) -eq 0 ]]; then
+        bashio::log.info "Still waiting for Border Routing Manager... ($i/60)"
     fi
     sleep 1
 done
 
+if [[ "$READY" != "true" ]]; then
+    bashio::log.error "Border Routing Manager never became ready. Aborting configuration."
+    exit 1
+fi
+
+bashio::log.info "Border Routing Manager is ready."
+
 # ==============================================================================
-# Route preference (applies to external routes published by the BR)
+# Basic services
+# ==============================================================================
+otctl trel enable || bashio::log.warning "Failed to enable TREL"
+
+if bashio::config.true 'nat64'; then
+    bashio::log.info "Enabling NAT64."
+    otctl nat64 enable || bashio::log.warning "Failed to enable NAT64"
+    otctl dns server upstream enable || true
+fi
+
+mdns_localhostname="$(hostname)-otbr"
+bashio::log.info "Setting OpenThread mDNS local hostname to ${mdns_localhostname}."
+otctl mdns localhostname "${mdns_localhostname}" || true
+otctl mdns enable || true
+
+# Conservative TX power
+otctl txpower 6 || true
+
+# ==============================================================================
+# Route preferences
 # ==============================================================================
 ROUTE_PRF=$(bashio::config 'custom_route_preference' 'med')
 bashio::log.info "Setting Border Router route preference to ${ROUTE_PRF}"
-ot-ctl br routeprf "${ROUTE_PRF}" || bashio::log.warning "Failed to set br routeprf"
+otctl br routeprf "${ROUTE_PRF}" || bashio::log.warning "Failed to set br routeprf"
 
-# Also make RIOs on the infrastructure side preferred
-ot-ctl br rioprf high || bashio::log.warning "Failed to set br rioprf"
+otctl br rioprf high || bashio::log.warning "Failed to set br rioprf"
 
 # ==============================================================================
-# Enable DHCPv6 Prefix Delegation
-# This is the primary way we obtain a ULA (or GUA) prefix from the DHCP server
+# DHCPv6-PD
 # ==============================================================================
-bashio::log.info "Enabling DHCPv6-PD client"
-if ot-ctl br pd enable; then
+bashio::log.info "Attempting to enable DHCPv6-PD..."
+
+if otctl br pd enable; then
     bashio::log.info "✅ DHCPv6-PD enabled"
+
+    # Prefer automatic OMR selection so the PD prefix can be used
+    otctl br omrconfig auto || bashio::log.warning "Failed to set br omrconfig auto"
+    otctl netdata register || true
+
+    bashio::log.info "Waiting for a DHCPv6-PD prefix (up to 60 s)..."
+    PD_SUCCESS=false
+    for i in {1..30}; do
+        if PD_PREFIX=$(otctl br pd omrprefix 2>/dev/null); then
+            # Clean the "Done" line if present
+            PD_PREFIX=$(echo "$PD_PREFIX" | grep -v '^Done$' | head -n1)
+            if [[ -n "$PD_PREFIX" ]]; then
+                bashio::log.info "✅ DHCPv6-PD prefix obtained: ${PD_PREFIX}"
+                PD_SUCCESS=true
+                break
+            fi
+        fi
+
+        if [[ $((i % 5)) -eq 0 ]]; then
+            STATE=$(ot-ctl br pd state 2>/dev/null | head -n1 || echo "unknown")
+            bashio::log.info "Still waiting... (pd state: ${STATE})"
+        fi
+        sleep 2
+    done
+
+    if [[ "$PD_SUCCESS" != "true" ]]; then
+        bashio::log.warning "⚠️  No DHCPv6-PD prefix received within timeout."
+        bashio::log.warning "    Check DHCP server, firewall (UDP 546/547), and backbone interface."
+    fi
 else
-    bashio::log.error "❌ Failed to enable DHCPv6-PD – is the feature compiled in?"
+    bashio::log.error "❌ DHCPv6-PD is not available in this build (Error 35: InvalidCommand)."
+    bashio::log.error "   The binary was compiled without OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE."
+    bashio::log.error "   You must rebuild OTBR with that flag set to 1 if you want PD support."
 fi
 
 # ==============================================================================
-# Let the Routing Manager automatically manage the OMR prefix
-# In "auto" mode it will prefer a DHCPv6-PD prefix when one is available
+# Final status
 # ==============================================================================
-bashio::log.info "Setting OMR configuration to auto (will use PD prefix when available)"
-ot-ctl br omrconfig auto || bashio::log.warning "Failed to set br omrconfig auto"
-
-# Publish any Network Data changes
-ot-ctl netdata register || bashio::log.warning "netdata register failed"
-
-# ==============================================================================
-# Wait for a PD prefix and give visibility
-# ==============================================================================
-bashio::log.info "Waiting for DHCPv6-PD prefix (up to ~60 seconds)..."
-
-PD_SUCCESS=false
-for i in {1..30}; do
-    PD_STATE=$(ot-ctl br pd state 2>/dev/null | head -n1 || echo "unknown")
-    PD_PREFIX=$(ot-ctl br pd omrprefix 2>/dev/null | head -n1 || true)
-
-    if [[ -n "${PD_PREFIX}" && "${PD_PREFIX}" != *"error"* ]]; then
-        bashio::log.info "✅ DHCPv6-PD prefix obtained: ${PD_PREFIX}"
-        PD_SUCCESS=true
-        break
-    fi
-
-    if [[ $((i % 5)) -eq 0 ]]; then
-        bashio::log.info "Still waiting... (pd state: ${PD_STATE})"
-    fi
-    sleep 2
-done
-
-if [[ "${PD_SUCCESS}" != "true" ]]; then
-    bashio::log.warning "⚠️  No DHCPv6-PD prefix received within timeout."
-    bashio::log.warning "    Check that:"
-    bashio::log.warning "    1. Your DHCP server is configured to delegate a prefix (/48, /56 or /60) to this host"
-    bashio::log.warning "    2. The backbone interface can send/receive DHCPv6 (UDP 546/547)"
-    bashio::log.warning "    3. Firewall rules allow DHCPv6 between OTBR and the server"
-    bashio::log.warning "    4. OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE is enabled in the build"
-fi
-
-# Small settle time
 sleep 2
 
-# ==============================================================================
-# Final visibility
-# ==============================================================================
-bashio::log.info "Current DHCPv6-PD state:"
-ot-ctl br pd state || true
-bashio::log.info "Current PD OMR prefix:"
-ot-ctl br pd omrprefix || true
-bashio::log.info "Current OMR / on-link view:"
+bashio::log.info "=== Final status ==="
+bashio::log.info "br state:"
+ot-ctl br state || true
+bashio::log.info "OMR / on-link:"
 ot-ctl br omrprefix || true
 ot-ctl br onlinkprefix || true
-bashio::log.info "Current Network Data:"
+bashio::log.info "Network Data:"
 ot-ctl netdata show || true

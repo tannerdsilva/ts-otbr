@@ -1,5 +1,5 @@
 ---
-version: 2.1.4
+version: 2.1.5
 breaking_versions: [2.1.0]
 slug: tanners_openthread_border_router
 name: Tanners OpenThread Border Router
@@ -23,6 +23,8 @@ privileged:
   - NET_ADMIN
 devices:
   - /dev/net/tun
+data:
+  - /var/lib/thread
 init: false
 options:
   device: null
