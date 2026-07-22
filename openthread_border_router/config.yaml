@@ -1,5 +1,5 @@
 ---
-version: 2.1.10
+version: 2.1.11
 breaking_versions: [2.1.0]
 slug: tanners_openthread_border_router
 name: Tanners OpenThread Border Router
