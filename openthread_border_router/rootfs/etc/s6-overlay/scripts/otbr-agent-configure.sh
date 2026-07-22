@@ -53,6 +53,25 @@ if [[ "$READY" != "true" ]]; then
     exit 1
 fi
 
+# ==============================================================================
+# DHCPv6-PD
+# ==============================================================================
+bashio::log.info "Attempting to enable DHCPv6-PD..."
+
+if otctl br pd enable; then
+    bashio::log.info "✅ DHCPv6-PD enabled"
+
+    # Prefer automatic OMR selection so the PD prefix can be used
+    otctl br omrconfig auto || bashio::log.warning "Failed to set br omrconfig auto"
+    otctl netdata register || true
+
+else
+    bashio::log.error "❌ DHCPv6-PD is not available in this build (Error 35: InvalidCommand)."
+    bashio::log.error "   The binary was compiled without OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE."
+    bashio::log.error "   You must rebuild OTBR with that flag set to 1 if you want PD support."
+fi
+
+
 bashio::log.info "Border Routing Manager is ready."
 
 # ==============================================================================
