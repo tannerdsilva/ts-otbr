@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 # ==============================================================================
-# Configure OTBR depending on add-on settings
+# Configure OTBR – DHCPv6-PD driven OMR prefix
 # ==============================================================================
 
 ot-ctl trel enable
@@ -38,79 +38,73 @@ ROUTE_PRF=$(bashio::config 'custom_route_preference' 'med')
 bashio::log.info "Setting Border Router route preference to ${ROUTE_PRF}"
 ot-ctl br routeprf "${ROUTE_PRF}" || bashio::log.warning "Failed to set br routeprf"
 
-# ==============================================================================
-# Disable automatic OMR management so we fully control prefixes
-# (this also stops the Routing Manager from injecting a ::/0)
-# ==============================================================================
-bashio::log.info "Disabling automatic OMR prefix management"
-ot-ctl br omrconfig disable || true
+# Also make RIOs on the infrastructure side preferred
+ot-ctl br rioprf high || bashio::log.warning "Failed to set br rioprf"
 
 # ==============================================================================
-# Custom / deterministic OMR + optional on-link prefix
+# Enable DHCPv6 Prefix Delegation
+# This is the primary way we obtain a ULA (or GUA) prefix from the DHCP server
 # ==============================================================================
-if bashio::config.has_value 'custom_omr_prefix'; then
-    DESIRED_OMR=$(bashio::config 'custom_omr_prefix')
-    OMR_PRF=$(bashio::config 'custom_omr_preference' 'med')
-    DESIRED_ONLINK=$(bashio::config 'custom_onlink_prefix' '')
-
-    bashio::log.info "Custom OMR prefix requested: ${DESIRED_OMR} (preference: ${OMR_PRF})"
-
-    # Remove any previous instance of this prefix (idempotent)
-    ot-ctl prefix remove "${DESIRED_OMR}" >/dev/null 2>&1 || true
-
-    # Add as on-mesh OMR prefix WITHOUT the default-route flag (no ::/0)
-    # Flags: p=preferred, a=SLAAC, o=on-mesh, s=stable
-    if ot-ctl prefix add "${DESIRED_OMR}" paos "${OMR_PRF}"; then
-        bashio::log.info "✅ Added OMR prefix ${DESIRED_OMR} (paos ${OMR_PRF})"
-    else
-        bashio::log.error "❌ Failed to add OMR prefix ${DESIRED_OMR}"
-    fi
-
-    if [[ -n "${DESIRED_ONLINK}" ]]; then
-        bashio::log.info "Custom on-link prefix requested: ${DESIRED_ONLINK}"
-        bashio::log.info "Note: local on-link prefix is still owned by the Routing Manager (PIO on AIL)."
-        bashio::log.info "      A deterministic ULA will be used if no better on-link prefix is present."
-        # Future-proofing: if a public CLI setter appears we can add it here.
-    fi
-
+bashio::log.info "Enabling DHCPv6-PD client"
+if ot-ctl br pd enable; then
+    bashio::log.info "✅ DHCPv6-PD enabled"
 else
-    # -----------------------------------------------------------------
-    # No custom OMR → generate a durable /48 ULA from the network name
-    # then carve a stable /64 OMR from it
-    # -----------------------------------------------------------------
-    NETWORK_NAME=$(ot-ctl dataset active 2>/dev/null | grep -oP 'NetworkName: \K.*' || echo "ha-thread-default")
-
-    # 48-bit hash → proper ULA /48  (fdXX:XXXX:XXXX::/48)
-    HASH=$(echo -n "${NETWORK_NAME}" | sha256sum | cut -c1-12)
-    ULA_48="fd${HASH:0:2}:${HASH:2:4}:${HASH:6:4}::/48"
-    GENERATED_OMR="${ULA_48%/*}:0::/64"          # first /64 from the /48
-
-    bashio::log.info "No custom OMR prefix set."
-    bashio::log.info "Network name '${NETWORK_NAME}' → durable ULA /48 ${ULA_48}"
-    bashio::log.info "Using OMR /64 ${GENERATED_OMR}"
-
-    ot-ctl prefix remove "${GENERATED_OMR}" >/dev/null 2>&1 || true
-
-    if ot-ctl prefix add "${GENERATED_OMR}" paos med; then
-        bashio::log.info "✅ Applied deterministic OMR prefix: ${GENERATED_OMR}"
-    else
-        bashio::log.error "❌ Failed to apply deterministic OMR prefix"
-    fi
+    bashio::log.error "❌ Failed to enable DHCPv6-PD – is the feature compiled in?"
 fi
 
-# Publish the local Network Data changes
-if ot-ctl netdata register; then
-    bashio::log.info "✅ Network Data registered"
-else
-    bashio::log.error "❌ netdata register failed"
+# ==============================================================================
+# Let the Routing Manager automatically manage the OMR prefix
+# In "auto" mode it will prefer a DHCPv6-PD prefix when one is available
+# ==============================================================================
+bashio::log.info "Setting OMR configuration to auto (will use PD prefix when available)"
+ot-ctl br omrconfig auto || bashio::log.warning "Failed to set br omrconfig auto"
+
+# Publish any Network Data changes
+ot-ctl netdata register || bashio::log.warning "netdata register failed"
+
+# ==============================================================================
+# Wait for a PD prefix and give visibility
+# ==============================================================================
+bashio::log.info "Waiting for DHCPv6-PD prefix (up to ~60 seconds)..."
+
+PD_SUCCESS=false
+for i in {1..30}; do
+    PD_STATE=$(ot-ctl br pd state 2>/dev/null | head -n1 || echo "unknown")
+    PD_PREFIX=$(ot-ctl br pd omrprefix 2>/dev/null | head -n1 || true)
+
+    if [[ -n "${PD_PREFIX}" && "${PD_PREFIX}" != *"error"* ]]; then
+        bashio::log.info "✅ DHCPv6-PD prefix obtained: ${PD_PREFIX}"
+        PD_SUCCESS=true
+        break
+    fi
+
+    if [[ $((i % 5)) -eq 0 ]]; then
+        bashio::log.info "Still waiting... (pd state: ${PD_STATE})"
+    fi
+    sleep 2
+done
+
+if [[ "${PD_SUCCESS}" != "true" ]]; then
+    bashio::log.warning "⚠️  No DHCPv6-PD prefix received within timeout."
+    bashio::log.warning "    Check that:"
+    bashio::log.warning "    1. Your DHCP server is configured to delegate a prefix (/48, /56 or /60) to this host"
+    bashio::log.warning "    2. The backbone interface can send/receive DHCPv6 (UDP 546/547)"
+    bashio::log.warning "    3. Firewall rules allow DHCPv6 between OTBR and the server"
+    bashio::log.warning "    4. OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE is enabled in the build"
 fi
 
 # Small settle time
 sleep 2
 
-# Optional visibility
-bashio::log.info "Current local prefixes:"
-ot-ctl prefix || true
+# ==============================================================================
+# Final visibility
+# ==============================================================================
+bashio::log.info "Current DHCPv6-PD state:"
+ot-ctl br pd state || true
+bashio::log.info "Current PD OMR prefix:"
+ot-ctl br pd omrprefix || true
 bashio::log.info "Current OMR / on-link view:"
 ot-ctl br omrprefix || true
 ot-ctl br onlinkprefix || true
+bashio::log.info "Current Network Data:"
+ot-ctl netdata show || true
