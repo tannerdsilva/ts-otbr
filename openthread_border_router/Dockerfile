@@ -79,6 +79,8 @@ RUN \
         -DOT_COAP=OFF \
         -DOT_COAPS=OFF \
         -DOT_THREAD_VERSION=1.4 \
+        -DOTBR_DHCP6_PD=ON \
+        -DOTBR_DHCP6_PD_CLIENT=openthread \
         -DOT_PROJECT_CONFIG="/usr/src/ot-br-posix/third_party/openthread/repo/openthread-core-ha-config-posix.h" \
         -DOT_RCP_RESTORATION_MAX_COUNT=2 \
     && ninja \
@@ -167,7 +169,8 @@ RUN \
         -DOT_COAP=OFF \
         -DOT_COAPS=OFF \
         -DOT_THREAD_VERSION=1.4 \
-        -DOT_BORDER_ROUTING_DHCP6_PD=ON \
+        -DOTBR_DHCP6_PD=ON \
+        -DOTBR_DHCP6_PD_CLIENT=openthread \
         -DOT_PROJECT_CONFIG="/usr/src/ot-br-posix/third_party/openthread/repo/openthread-core-ha-config-posix.h" \
         -DOT_RCP_RESTORATION_MAX_COUNT=2 \
     && ninja \
