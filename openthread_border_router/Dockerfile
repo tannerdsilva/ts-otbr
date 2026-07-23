@@ -103,6 +103,8 @@ ENV DOCKER=1
 COPY openthread-core-ha-config-posix.h /usr/src/
 COPY 0001-rest-SO_REUSEADDR.patch /usr/src/
 COPY 0002-nat64-handle-ipv4-options.patch /usr/src/
+COPY 0003-suggested-ula-prefix-agent-stable.patch /usr/src/
+COPY 0004-suggested-ula-prefix-core-stable.patch /usr/src/
 
 WORKDIR /usr/src
 RUN \
