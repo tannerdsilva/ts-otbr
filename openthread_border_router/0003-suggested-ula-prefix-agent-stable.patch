@@ -1,7 +1,7 @@
-diff --git src/agent/realmain.cpp src/agent/realmain.cpp
+diff --git a/src/agent/realmain.cpp b/src/agent/realmain.cpp
 index e1e05e1c..c421085c 100644
---- src/agent/realmain.cpp
-+++ src/agent/realmain.cpp
+--- a/src/agent/realmain.cpp
++++ b/src/agent/realmain.cpp
 @@ -39,6 +39,7 @@
  #include <stdio.h>
  #include <stdlib.h>

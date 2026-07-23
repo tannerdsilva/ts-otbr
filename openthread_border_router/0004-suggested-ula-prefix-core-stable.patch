@@ -1,7 +1,7 @@
-diff --git src/core/border_router/routing_manager.cpp src/core/border_router/routing_manager.cpp
+diff --git a/src/core/border_router/routing_manager.cpp b/src/core/border_router/routing_manager.cpp
 index 6be8b9002..5e8e461ea 100644
---- src/core/border_router/routing_manager.cpp
-+++ src/core/border_router/routing_manager.cpp
+--- a/src/core/border_router/routing_manager.cpp
++++ b/src/core/border_router/routing_manager.cpp
 @@ -215,26 +215,56 @@ exit:
  void RoutingManager::LoadOrGenerateRandomBrUlaPrefix(void)
  {
