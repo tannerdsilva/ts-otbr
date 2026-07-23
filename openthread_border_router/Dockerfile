@@ -39,7 +39,7 @@ RUN \
         libprotobuf-dev \
         protobuf-compiler \
     && rm -rf /var/lib/apt/lists/* \
-    && git clone --depth 1 -b main https://github.com/openthread/ot-br-posix.git /usr/src/ot-br-posix \
+    && git clone --depth 1 -b suggestedULA https://github.com/tannerdsilva/ot-br-posix.git /usr/src/ot-br-posix \
     && cd /usr/src/ot-br-posix \
     && git fetch origin ${OTBR_BETA_VERSION} \
     && git checkout ${OTBR_BETA_VERSION} \
@@ -127,7 +127,7 @@ RUN \
         npm \
         libprotobuf-dev \
         protobuf-compiler \
-    && git clone --depth 1 -b main https://github.com/openthread/ot-br-posix.git /usr/src/ot-br-posix \
+    && git clone --depth 1 -b suggestedULA https://github.com/tannerdsilva/ot-br-posix.git /usr/src/ot-br-posix \
     && cd /usr/src/ot-br-posix \
     && git fetch origin ${OTBR_VERSION} \
     && git checkout ${OTBR_VERSION} \
