@@ -39,7 +39,7 @@ RUN \
         libprotobuf-dev \
         protobuf-compiler \
     && rm -rf /var/lib/apt/lists/* \
-    && git clone --depth 1 -b suggestedULA https://github.com/tannerdsilva/ot-br-posix.git /usr/src/ot-br-posix \
+    && git clone --depth 1 -b main https://github.com/openthread/ot-br-posix.git /usr/src/ot-br-posix \
     && cd /usr/src/ot-br-posix \
     && git fetch origin ${OTBR_BETA_VERSION} \
     && git checkout ${OTBR_BETA_VERSION} \
@@ -79,8 +79,6 @@ RUN \
         -DOT_COAP=OFF \
         -DOT_COAPS=OFF \
         -DOT_THREAD_VERSION=1.4 \
-        -DOTBR_DHCP6_PD=ON \
-        -DOTBR_DHCP6_PD_CLIENT=openthread \
         -DOT_PROJECT_CONFIG="/usr/src/ot-br-posix/third_party/openthread/repo/openthread-core-ha-config-posix.h" \
         -DOT_RCP_RESTORATION_MAX_COUNT=2 \
     && ninja \
@@ -127,13 +125,15 @@ RUN \
         npm \
         libprotobuf-dev \
         protobuf-compiler \
-    && git clone --depth 1 -b suggestedULA https://github.com/tannerdsilva/ot-br-posix.git /usr/src/ot-br-posix \
+    && git clone --depth 1 -b main https://github.com/openthread/ot-br-posix.git /usr/src/ot-br-posix \
     && cd /usr/src/ot-br-posix \
     && git fetch origin ${OTBR_VERSION} \
     && git checkout ${OTBR_VERSION} \
     && git submodule update --init --recursive --depth 1 \
-    && patch -p1 < /usr/src/0001-rest-SO_REUSEADDR.patch # \
-    # && patch -p1 -d third_party/openthread/repo < /usr/src/0002-nat64-handle-ipv4-options.patch
+    && patch -p1 < /usr/src/0001-rest-SO_REUSEADDR.patch \
+    && patch -p1 -d third_party/openthread/repo < /usr/src/0002-nat64-handle-ipv4-options.patch \
+    && patch -p1 < /usr/src/0003-suggested-ula-prefix-agent-stable.patch \
+    && patch -p1 -d third_party/openthread/repo < /usr/src/0004-suggested-ula-prefix-core-stable.patch
 
 WORKDIR /usr/src/ot-br-posix
 RUN \
