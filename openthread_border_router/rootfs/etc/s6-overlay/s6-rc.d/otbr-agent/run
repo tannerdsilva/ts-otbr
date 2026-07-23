@@ -16,6 +16,7 @@ declare migrate_flow_control
 declare otbr_log_level_int
 declare otbr_rest_listen
 declare otbr_rest_listen_port
+declare ula_prefix
 
 # Cleanup unused configs
 if bashio::config.exists 'autoflash_firmware'; then
