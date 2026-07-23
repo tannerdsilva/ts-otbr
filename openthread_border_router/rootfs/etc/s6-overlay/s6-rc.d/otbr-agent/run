@@ -236,11 +236,20 @@ python3 /usr/local/bin/migrate_otbr_settings.py \
     --flow-control "${migrate_flow_control}" \
     --data-dir /data/thread/
 
-bashio::log.info "Starting otbr-agent..."
+# Build the optional --ula-prefix argument
+ula_prefix_arg=""
+if bashio::var.has_value "${ula_prefix}"; then
+    ula_prefix_arg="--ula-prefix ${ula_prefix}"
+    bashio::log.info "Using suggested BR ULA prefix: ${ula_prefix}"
+fi
+
+bashio::log.info "Starting OTBR agent..."
+
 # shellcheck disable=SC2086
 exec s6-notifyoncheck -d -s 300 -w 300 -n 0 stdbuf -oL \
     "/usr/sbin/otbr-agent" -I ${thread_if} -B "${backbone_if}" \
         --rest-listen-address "${otbr_rest_listen}" \
         -d${otbr_log_level_int} -v -s \
+        ${ula_prefix_arg} \
         "spinel+hdlc+uart://${device}?uart-baudrate=${baudrate}${flow_control}" \
         "trel://${backbone_if}"
