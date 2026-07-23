@@ -105,6 +105,7 @@ COPY 0001-rest-SO_REUSEADDR.patch /usr/src/
 COPY 0002-nat64-handle-ipv4-options.patch /usr/src/
 COPY 0003-suggested-ula-prefix-agent-stable.patch /usr/src/
 COPY 0004-suggested-ula-prefix-core-stable.patch /usr/src/
+COPY 0005-disable-fc00-route.patch /usr/src/
 
 WORKDIR /usr/src
 RUN \
@@ -135,7 +136,8 @@ RUN \
     && patch -p1 < /usr/src/0001-rest-SO_REUSEADDR.patch \
     && patch -p1 -d third_party/openthread/repo < /usr/src/0002-nat64-handle-ipv4-options.patch \
     && patch -p1 < /usr/src/0003-suggested-ula-prefix-agent-stable.patch \
-    && patch -p1 -d third_party/openthread/repo < /usr/src/0004-suggested-ula-prefix-core-stable.patch
+    && patch -p1 -d third_party/openthread/repo < /usr/src/0004-suggested-ula-prefix-core-stable.patch \
+    && patch -p1 -d third_party_openthread/repo < /usr/src/0005-disable-fc00-route.patch
 
 WORKDIR /usr/src/ot-br-posix
 RUN \
