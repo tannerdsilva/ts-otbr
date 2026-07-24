@@ -139,6 +139,8 @@ table ip6 otbr {
     chain output {
         type filter hook output priority -150; policy accept;
 
+		oifname "${backbone_if}" icmpv6 type nd-router-advert counter comment "RA out backbone interface"
+
         oifname "${thread_if}" udp dport 5353 ip6 daddr ff02::fb counter drop comment "block local mDNS to Thread mesh"
         oifname "${thread_if}" udp dport 5355 meta pkttype multicast counter drop comment "block LLMNR to Thread mesh"
         oifname "${thread_if}" udp dport 1900 meta pkttype multicast counter drop comment "block SSDP to Thread mesh"
