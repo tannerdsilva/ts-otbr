@@ -66,19 +66,43 @@ otbr_log_level_int="$(otbr_log_level_to_int)" \
 mkdir -p /data/thread && ln -sft /var/lib /data/thread || bashio::exit.nok "Could not create directory /var/lib/thread to store Thread data."
 
 # We compile the OTBR with firewall support, so otbr-agent tries to update the
-# ipsets. Therefor, create ipsets always to avoid errors from otbr-agent. Just
-# the ipsets  won't have an effect in practice when the firewall is disabled.
+# ipsets. Therefore create the ipsets always (even when the firewall is later
+# disabled) so otbr-agent never fails when it tries to manipulate them.
 
 # ==============================================================================
-# OTBR hardened nftables firewall (IPv6) + ipset compatibility
+# Early IPv6 defaults – any newly created interface (incl. wpan0) inherits these
 # ==============================================================================
-ipset create -exist otbr-ingress-deny-src        hash:net family inet6
-ipset create -exist otbr-ingress-deny-src-swap   hash:net family inet6
-ipset create -exist otbr-ingress-allow-dst       hash:net family inet6
-ipset create -exist otbr-ingress-allow-dst-swap  hash:net family inet6
+# This closes the race between interface creation and the later per-interface
+# waiter. The backbone interface is already up, so it is unaffected.
+sysctl -w net.ipv6.conf.default.accept_ra=0          >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.default.accept_ra_defrtr=0   >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.default.accept_ra_pinfo=0    >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.default.forwarding=1         >/dev/null 2>&1 || true
+# Optional:
+# sysctl -w net.ipv6.conf.default.router_solicitations=0 >/dev/null 2>&1 || true
+
+# ==============================================================================
+# OTBR hardened nftables firewall (IPv6) + ipset compatibility layer
+# ==============================================================================
+# Design goals:
+#   • No Ethernet control-plane leakage onto the Thread radio
+#   • No routing loops between backbone and mesh
+#   • Strict anti-spoofing of Thread-sourced addresses arriving from Ethernet
+#   • Preserve normal Thread/Matter operation and intra-mesh relay
+#
+# Directionality:
+#   backbone → Thread  : strict (default-deny unsolicited unicast + selective multicast)
+#   Thread  → backbone : permissive
+#   local OUTPUT → Thread : block host-generated discovery & RAs
+# ==============================================================================
+
+ipset create -exist otbr-ingress-deny-src       hash:net family inet6
+ipset create -exist otbr-ingress-deny-src-swap  hash:net family inet6
+ipset create -exist otbr-ingress-allow-dst      hash:net family inet6
+ipset create -exist otbr-ingress-allow-dst-swap hash:net family inet6
 
 nft delete table ip6 otbr 2>/dev/null || true
-nft delete table ip   otbr 2>/dev/null || true
+nft delete table ip  otbr 2>/dev/null || true
 
 nft -f - <<EOF
 table ip6 otbr {
@@ -109,62 +133,91 @@ table ip6 otbr {
         iifname "${thread_if}" jump otbr_from_thread
     }
 
-	chain output {
-		type filter hook output priority -150; policy accept;
-	
-		# 1. mDNS (already present) – the main culprit
-		oifname "${thread_if}" udp dport 5353 ip6 daddr ff02::fb counter drop comment "block local mDNS to Thread mesh"
-	
-		# 2. LLMNR (Link-Local Multicast Name Resolution) – Windows / some Linux hosts emit this
-		oifname "${thread_if}" udp dport 5355 meta pkttype multicast counter drop comment "block LLMNR to Thread mesh"
-	
-		# 3. SSDP / UPnP discovery
-		oifname "${thread_if}" udp dport 1900 meta pkttype multicast counter drop comment "block SSDP to Thread mesh"
-	
-		# 4. Kernel/host-generated Router Advertisements on the Thread interface
-		#    (OpenThread itself sends RAs via the stack; host radvd/kernel RAs on wpanX are almost always wrong)
-		oifname "${thread_if}" icmpv6 type nd-router-advert counter drop comment "block host RAs on Thread radio"
-	}
+    # ------------------------------------------------------------------
+    # Locally-generated traffic leaving on the Thread interface
+    # ------------------------------------------------------------------
+    chain output {
+        type filter hook output priority -150; policy accept;
+
+        oifname "${thread_if}" udp dport 5353 ip6 daddr ff02::fb counter drop comment "block local mDNS to Thread mesh"
+        oifname "${thread_if}" udp dport 5355 meta pkttype multicast counter drop comment "block LLMNR to Thread mesh"
+        oifname "${thread_if}" udp dport 1900 meta pkttype multicast counter drop comment "block SSDP to Thread mesh"
+        oifname "${thread_if}" icmpv6 type nd-router-advert counter drop comment "block host RAs on Thread radio"
+    }
 
     chain otbr_to_thread {
         iifname "${backbone_if}" jump from_backbone_to_thread
-        iifname "${thread_if}" jump from_thread_to_thread
+        iifname "${thread_if}"   jump from_thread_to_thread
         counter drop
     }
 
+    # ------------------------------------------------------------------
+    # backbone → Thread  (strict, fail-closed ingress)
+    # ------------------------------------------------------------------
     chain from_backbone_to_thread {
+        # 0. Drop obviously bad packets first
+        ct state invalid counter drop
+
+        # 1. Stateful return traffic
         ct state established,related accept
 
+        # 2. Essential ICMPv6 (PMTU, errors, diagnostics)
         icmpv6 type {
             destination-unreachable, packet-too-big,
             time-exceeded, parameter-problem,
             echo-request, echo-reply
         } accept
 
+        # 3. Link-scoped ND / MLD (hop-limit 255 required by RFC)
+        #    Router Advertisements are intentionally excluded.
         icmpv6 type {
-            nd-router-solicit, nd-router-advert,
+            nd-router-solicit,
             nd-neighbor-solicit, nd-neighbor-advert,
             nd-redirect,
             mld-listener-query, mld-listener-report, mld2-listener-report
         } ip6 hoplimit 255 accept
 
-        ip6 saddr @otbr-ingress-deny-src counter drop
+        # 4. Anti-spoof / loop prevention
+        ip6 saddr @otbr-ingress-deny-src counter drop comment "drop Thread-sourced packets arriving from Ethernet"
+
+        # 5. Never forward link-local unicast into the mesh
+        #    (ND already permitted above; everything else is unwanted)
+        ip6 daddr fe80::/10 counter drop comment "drop link-local unicast from backbone"
+
+        # 6. Unicast only to known OMR / DUA prefixes
         ip6 daddr @otbr-ingress-allow-dst accept
-        meta pkttype { multicast, broadcast } accept
-        counter drop
+
+        # 7. Explicit control-plane kills (before rate-limit)
+        meta pkttype { multicast, broadcast } udp dport 5353 ip6 daddr ff02::fb counter drop comment "mDNS"
+        meta pkttype { multicast, broadcast } udp dport 5355 counter drop comment "LLMNR"
+        meta pkttype { multicast, broadcast } udp dport 1900 counter drop comment "SSDP"
+        meta pkttype { multicast, broadcast } udp dport 61631 counter drop comment "TMF"
+        meta pkttype { multicast, broadcast } udp dport { 546, 547 } counter drop comment "DHCPv6"
+        meta pkttype { multicast, broadcast } udp dport { 5350, 5351 } counter drop comment "NAT-PMP / PCP"
+
+        # 8. Rate-limit remaining multicast (protects radio bandwidth)
+        meta pkttype { multicast, broadcast } limit rate 50/second burst 100 packets accept
+        meta pkttype { multicast, broadcast } counter drop comment "excess multicast"
+
+        # 9. Default deny
+        counter drop comment "default deny backbone→Thread"
     }
 
     chain from_thread_to_thread {
-        accept   # allow BR-relayed on-mesh traffic
+        accept
     }
 
     chain otbr_from_thread {
         oifname "${backbone_if}" jump from_thread_to_backbone
-        oifname "${thread_if}" jump from_thread_to_thread
+        oifname "${thread_if}"   jump from_thread_to_thread
         counter drop
     }
 
+    # ------------------------------------------------------------------
+    # Thread → backbone  (permissive egress – required for reachability)
+    # ------------------------------------------------------------------
     chain from_thread_to_backbone {
+        ct state invalid counter drop
         ct state established,related accept
 
         icmpv6 type {
@@ -173,6 +226,7 @@ table ip6 otbr {
             echo-request, echo-reply
         } accept
 
+        # RAs from the Thread side are required (BR advertises RIOs on backbone)
         icmpv6 type {
             nd-router-solicit, nd-router-advert,
             nd-neighbor-solicit, nd-neighbor-advert,
@@ -180,24 +234,21 @@ table ip6 otbr {
             mld-listener-query, mld-listener-report, mld2-listener-report
         } ip6 hoplimit 255 accept
 
-        ip6 saddr @otbr-ingress-deny-src counter drop
-        ip6 daddr @otbr-ingress-allow-dst counter accept
-        meta pkttype { multicast, broadcast } accept
         accept
     }
 }
 EOF
 
-# Sync ipset contents into nft sets so otbr-agent's dynamic updates are used
+# Sync current ipset contents into the nft sets so that any prefixes
+# already present (or later updated by otbr-agent via the classic ipset
+# interface) become visible to the nftables rules.
 sync_ipset() {
     local ipset_name="$1"
     local nft_set="$2"
     local elements=()
     local line entry
 
-    # Collect members using the machine-readable save format
     while IFS= read -r line; do
-        # Matches: add <setname> <entry> [optional timeout/flags...]
         if [[ $line =~ ^add[[:space:]]+[^[:space:]]+[[:space:]]+([^[:space:]]+) ]]; then
             entry="${BASH_REMATCH[1]}"
             elements+=("$entry")
@@ -205,13 +256,11 @@ sync_ipset() {
     done < <(ipset list "$ipset_name" -o save 2>/dev/null || true)
 
     if (( ${#elements[@]} > 0 )); then
-        # Atomic replace
         nft -f - <<EOF 2>/dev/null || true
 flush set ip6 otbr ${nft_set}
 add element ip6 otbr ${nft_set} { $(IFS=,; echo "${elements[*]}") }
 EOF
     else
-        # Explicitly empty the set
         nft flush set ip6 otbr "$nft_set" 2>/dev/null || true
     fi
 }
@@ -220,8 +269,9 @@ sync_ipset otbr-ingress-deny-src  otbr-ingress-deny-src
 sync_ipset otbr-ingress-allow-dst otbr-ingress-allow-dst
 
 if bashio::config.true 'firewall'; then
-    bashio::log.info "OTBR hardened nftables firewall ACTIVE (inverted-tree protection + intra-mesh relay allowed)"
+    bashio::log.info "OTBR hardened nftables firewall ACTIVE (strict backbone→Thread, permissive Thread→backbone, host control-plane blocked on radio)"
 else
+    # Disable path: open the critical ingress chain so behaviour matches stock OTBR
     nft flush chain ip6 otbr from_backbone_to_thread
     nft add rule ip6 otbr from_backbone_to_thread accept
     bashio::log.info "OTBR firewall disabled — from-backbone-to-Thread set to ACCEPT"
