@@ -1,0 +1,13 @@
+diff --git a/src/core/border_router/routing_manager.cpp b/src/core/border_router/routing_manager.cpp
+index 4b2c98d9f..8eead314a 100644
+--- a/src/core/border_router/routing_manager.cpp
++++ b/src/core/border_router/routing_manager.cpp
+@@ -2027,7 +2027,7 @@ void RoutingManager::RoutePublisher::DeterminePrefixFor(State aState, Ip6::Prefi
+         // `Clear()` will set the prefix to `::/0`.
+         break;
+     case kPublishUla:
+-        aPrefix = GetUlaPrefix();
++        aPrefix = Get<RoutingManager>().GetBrUlaPrefix();
+         break;
+     }
+ }
