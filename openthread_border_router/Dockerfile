@@ -106,6 +106,7 @@ COPY 0002-nat64-handle-ipv4-options.patch /usr/src/
 COPY 0003-suggested-ula-prefix-agent-stable.patch /usr/src/
 COPY 0004-suggested-ula-prefix-core-stable.patch /usr/src/
 COPY 0005-disable-fc00-route.patch /usr/src/
+COPY 0006-ula-routes.patch
 
 WORKDIR /usr/src
 RUN \
