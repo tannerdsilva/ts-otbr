@@ -6,42 +6,36 @@
 # Applies airtight IPv6 hardening to the Thread interface as soon as it appears.
 # ==============================================================================
 
-# Prefer the same variable the main agent uses; fall back to the classic name
 THREAD_IF="${thread_if:-wpan0}"
 
 bashio::log.info "otbr-wpan-sysctl: waiting for ${THREAD_IF} to appear..."
 
-MAX_WAIT=60          # seconds
-SLEEP_INTERVAL=0.5
+MAX_WAIT=60
 elapsed=0
 
 while [ ! -d "/proc/sys/net/ipv6/conf/${THREAD_IF}" ]; do
-    if (( $(echo "${elapsed} >= ${MAX_WAIT}" | bc -l) )); then
+    if [ "${elapsed}" -ge "${MAX_WAIT}" ]; then
         bashio::log.error "otbr-wpan-sysctl: timed out after ${MAX_WAIT}s waiting for ${THREAD_IF}"
         exit 1
     fi
-    sleep "${SLEEP_INTERVAL}"
-    elapsed=$(echo "${elapsed} + ${SLEEP_INTERVAL}" | bc -l)
+    sleep 1
+    elapsed=$((elapsed + 1))
 done
 
 bashio::log.info "otbr-wpan-sysctl: ${THREAD_IF} is present – applying hardening"
 
-# Reinforce on the live interface (belt-and-suspenders)
-sysctl -w "net.ipv6.conf.${THREAD_IF}.accept_ra=0"          >/dev/null 2>&1 || true
-sysctl -w "net.ipv6.conf.${THREAD_IF}.accept_ra_defrtr=0"   >/dev/null 2>&1 || true
-sysctl -w "net.ipv6.conf.${THREAD_IF}.accept_ra_pinfo=0"    >/dev/null 2>&1 || true
-sysctl -w "net.ipv6.conf.${THREAD_IF}.forwarding=1"         >/dev/null 2>&1 || true
-# Optional:
-# sysctl -w "net.ipv6.conf.${THREAD_IF}.router_solicitations=0" >/dev/null 2>&1 || true
+sysctl -w "net.ipv6.conf.${THREAD_IF}.accept_ra=0"        >/dev/null 2>&1 || true
+sysctl -w "net.ipv6.conf.${THREAD_IF}.accept_ra_defrtr=0" >/dev/null 2>&1 || true
+sysctl -w "net.ipv6.conf.${THREAD_IF}.accept_ra_pinfo=0"  >/dev/null 2>&1 || true
+sysctl -w "net.ipv6.conf.${THREAD_IF}.forwarding=1"       >/dev/null 2>&1 || true
 
-# Quick verification
 accept_ra=$(sysctl -n "net.ipv6.conf.${THREAD_IF}.accept_ra" 2>/dev/null || echo "unknown")
 bashio::log.info "otbr-wpan-sysctl: ${THREAD_IF}.accept_ra = ${accept_ra} (should be 0)"
 
 if [ "${accept_ra}" = "0" ]; then
     bashio::log.info "otbr-wpan-sysctl: hardening applied successfully"
-    exit 0
 else
     bashio::log.warning "otbr-wpan-sysctl: accept_ra is not 0 – check manually"
-    exit 0   # still exit 0 so the oneshot is considered successful
 fi
+
+exit 0
