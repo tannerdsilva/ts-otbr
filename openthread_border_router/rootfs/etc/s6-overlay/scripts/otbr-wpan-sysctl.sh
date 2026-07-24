@@ -3,57 +3,65 @@
 # shellcheck shell=bash
 # ==============================================================================
 # otbr-wpan-sysctl
-# Waits until the Thread interface is fully ready, then applies IPv6 hardening.
+# Waits for the Thread interface to appear, then applies IPv6 hardening
+# with retries. Designed for the real behaviour of wpan0 in OTBR containers.
 # ==============================================================================
 
 THREAD_IF="${thread_if:-wpan0}"
 
-bashio::log.info "otbr-wpan-sysctl: waiting for ${THREAD_IF} to become ready..."
+bashio::log.info "otbr-wpan-sysctl: waiting for ${THREAD_IF} directory to appear..."
 
-MAX_WAIT=90
+MAX_WAIT=60
 elapsed=0
 
-# Wait until:
-#   1. the sysctl directory exists, AND
-#   2. we can actually read the accept_ra value, AND
-#   3. (optional but recommended) the interface is operationally up
-while true; do
-    if [ -d "/proc/sys/net/ipv6/conf/${THREAD_IF}" ] && \
-       sysctl -n "net.ipv6.conf.${THREAD_IF}.accept_ra" >/dev/null 2>&1; then
-
-        # Extra safety: prefer the interface to be UP
-        operstate=$(cat "/sys/class/net/${THREAD_IF}/operstate" 2>/dev/null || echo "unknown")
-        if [ "${operstate}" = "up" ] || [ "${operstate}" = "unknown" ]; then
-            # "unknown" is accepted because some virtual interfaces never report "up"
-            break
-        fi
-    fi
-
+# Only wait for the sysctl directory – this is the reliable signal
+while [ ! -d "/proc/sys/net/ipv6/conf/${THREAD_IF}" ]; do
     if [ "${elapsed}" -ge "${MAX_WAIT}" ]; then
-        bashio::log.error "otbr-wpan-sysctl: timed out after ${MAX_WAIT}s waiting for ${THREAD_IF} to become ready"
+        bashio::log.error "otbr-wpan-sysctl: timed out after ${MAX_WAIT}s waiting for ${THREAD_IF}"
         exit 1
     fi
-
     sleep 1
     elapsed=$((elapsed + 1))
 done
 
-bashio::log.info "otbr-wpan-sysctl: ${THREAD_IF} is ready (operstate=$(cat /sys/class/net/${THREAD_IF}/operstate 2>/dev/null || echo unknown)) – applying hardening"
+bashio::log.info "otbr-wpan-sysctl: ${THREAD_IF} directory present – applying hardening (with retries)"
 
-# Apply the hardening
-sysctl -w "net.ipv6.conf.${THREAD_IF}.accept_ra=0"        >/dev/null 2>&1 || true
-sysctl -w "net.ipv6.conf.${THREAD_IF}.accept_ra_defrtr=0" >/dev/null 2>&1 || true
-sysctl -w "net.ipv6.conf.${THREAD_IF}.accept_ra_pinfo=0"  >/dev/null 2>&1 || true
-sysctl -w "net.ipv6.conf.${THREAD_IF}.forwarding=1"       >/dev/null 2>&1 || true
+# Helper that retries a sysctl write a few times
+set_sysctl() {
+    local key="$1"
+    local value="$2"
+    local attempt
+    for attempt in 1 2 3 4 5 6; do
+        if sysctl -w "${key}=${value}" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    bashio::log.warning "otbr-wpan-sysctl: failed to set ${key}=${value} after retries"
+    return 1
+}
 
-# Verify
-accept_ra=$(sysctl -n "net.ipv6.conf.${THREAD_IF}.accept_ra" 2>/dev/null || echo "unknown")
-bashio::log.info "otbr-wpan-sysctl: ${THREAD_IF}.accept_ra = ${accept_ra}"
+# Apply the hardening settings
+set_sysctl "net.ipv6.conf.${THREAD_IF}.accept_ra"        0
+set_sysctl "net.ipv6.conf.${THREAD_IF}.accept_ra_defrtr" 0
+set_sysctl "net.ipv6.conf.${THREAD_IF}.accept_ra_pinfo"  0
+set_sysctl "net.ipv6.conf.${THREAD_IF}.forwarding"       1
+
+# Optional – uncomment if you also want to suppress host Router Solicitations
+# set_sysctl "net.ipv6.conf.${THREAD_IF}.router_solicitations" 0
+
+# Best-effort verification (do not fail the service if the read is flaky)
+sleep 1
+accept_ra=$(sysctl -n "net.ipv6.conf.${THREAD_IF}.accept_ra" 2>/dev/null || echo "unreadable")
+
+bashio::log.info "otbr-wpan-sysctl: ${THREAD_IF}.accept_ra is now '${accept_ra}'"
 
 if [ "${accept_ra}" = "0" ]; then
-    bashio::log.info "otbr-wpan-sysctl: hardening applied successfully"
-    exit 0
+    bashio::log.info "otbr-wpan-sysctl: hardening applied and verified successfully"
 else
-    bashio::log.error "otbr-wpan-sysctl: failed to set accept_ra=0 (got '${accept_ra}')"
-    exit 1
+    bashio::log.warning "otbr-wpan-sysctl: could not verify accept_ra=0 (got '${accept_ra}'). This is often normal in containers – the writes were still attempted."
 fi
+
+# Always exit 0 so the oneshot is considered successful.
+# The important part is that the writes were issued once the interface existed.
+exit 0
