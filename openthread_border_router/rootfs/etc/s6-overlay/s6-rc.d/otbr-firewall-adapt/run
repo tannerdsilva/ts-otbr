@@ -1,25 +1,81 @@
 #!/usr/bin/with-contenv bashio
 # shellcheck shell=bash
+# ==============================================================================
+# Adaptive firewall for multi-BR / same-AIL operation
+# ==============================================================================
 
 # -----------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------
-INTERVAL=$(bashio::config 'adaptive_firewall_interval' || echo 5)
-ENABLED=$(bashio::config 'adaptive_firewall' || echo true)
+INTERVAL=$(bashio::config 'adaptive_firewall_interval' 2>/dev/null || echo 5)
+ENABLED=$(bashio::config 'adaptive_firewall' 2>/dev/null || echo true)
 
-if [[ "$ENABLED" != "true" ]]; then
-    bashio::log.info "Adaptive firewall disabled – exiting"
+if [[ "${ENABLED}" != "true" && "${ENABLED}" != "True" && "${ENABLED}" != "1" ]]; then
+    bashio::log.info "Adaptive firewall disabled – idling"
     exec sleep infinity
 fi
 
 # -----------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------
-get_omr_prefix()   { ... }
-get_mesh_prefix()  { ... }
-query_same_ail()   { ... }          # returns "true" or "false"
-apply_strict()     { ... }
-apply_relaxed()    { ... }
+get_omr_prefix() {
+    # Example: "Local: fd6e:fc15:fff0:1::/64"
+    ot-ctl br omrprefix 2>/dev/null | awk '/Local:/ {print $2; exit}'
+}
+
+get_mesh_prefix() {
+    # Take the mesh-local /64 from the first RLOC-style address
+    ot-ctl ipaddr 2>/dev/null | grep -oE 'fd[0-9a-f:]+:[0-9a-f]+::/64' | head -1
+}
+
+query_same_ail() {
+    # Returns 0 (true) when we should run in relaxed mode
+    local multi_ail peer_count
+
+    multi_ail=$(ot-ctl br multiail state 2>/dev/null | tr '[:upper:]' '[:lower:]')
+    peer_count=$(ot-ctl br peers 2>/dev/null | grep -c 'rloc16:' || true)
+
+    # Relaxed only when we have peer BRs AND Multi-AIL is not detected
+    if [[ "${peer_count}" -gt 0 ]] && [[ "${multi_ail}" != *"detected: yes"* ]]; then
+        return 0
+    fi
+    return 1
+}
+
+apply_strict() {
+    local omr mesh
+    omr=$(get_omr_prefix)
+    mesh=$(get_mesh_prefix)
+
+    [[ -z "${omr}" ]] && return
+
+    bashio::log.debug "Applying STRICT mode (OMR=${omr})"
+
+    # Deny list – both prefixes
+    ipset add -exist otbr-ingress-deny-src "${omr}" 2>/dev/null || true
+    [[ -n "${mesh}" ]] && ipset add -exist otbr-ingress-deny-src "${mesh}" 2>/dev/null || true
+
+    # Allow list – only OMR
+    ipset flush otbr-ingress-allow-dst 2>/dev/null || true
+    ipset add -exist otbr-ingress-allow-dst "${omr}" 2>/dev/null || true
+}
+
+apply_relaxed() {
+    local omr mesh
+    omr=$(get_omr_prefix)
+    mesh=$(get_mesh_prefix)
+
+    [[ -z "${omr}" ]] && return
+
+    bashio::log.debug "Applying RELAXED mode (OMR=${omr})"
+
+    # Remove OMR from deny list (keep mesh-local if present)
+    ipset del otbr-ingress-deny-src "${omr}" 2>/dev/null || true
+
+    # Allow list – OMR + mesh-local
+    ipset add -exist otbr-ingress-allow-dst "${omr}" 2>/dev/null || true
+    [[ -n "${mesh}" ]] && ipset add -exist otbr-ingress-allow-dst "${mesh}" 2>/dev/null || true
+}
 
 # -----------------------------------------------------------------
 # Wait for prerequisites
@@ -42,15 +98,15 @@ while true; do
         desired="strict"
     fi
 
-    if [[ "$desired" != "$current_mode" ]]; then
-        if [[ "$desired" == "relaxed" ]]; then
+    if [[ "${desired}" != "${current_mode}" ]]; then
+        if [[ "${desired}" == "relaxed" ]]; then
             apply_relaxed
         else
             apply_strict
         fi
-        current_mode="$desired"
-        bashio::log.info "Firewall mode → $desired"
+        current_mode="${desired}"
+        bashio::log.info "Firewall mode → ${desired}"
     fi
 
-    sleep "$INTERVAL"
+    sleep "${INTERVAL}"
 done
