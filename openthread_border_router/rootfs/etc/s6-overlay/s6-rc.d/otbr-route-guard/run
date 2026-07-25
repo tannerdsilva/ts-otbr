@@ -4,9 +4,9 @@
 # Disable automatic exit on error – we handle failures ourselves
 set +e
 
-route_guard_enable=$(bashio::config 'route_guard' 2>/dev/null || echo "true")
-route_guard_interval=$(bashio::config 'route_guard_interval' 2>/dev/null || echo 5)
-backbone_if=$(bashio::config 'backbone_if' 2>/dev/null || echo "end0")
+declare route_guard_enable
+declare route_guard_interval
+declare backbone_if
 
 if [[ "${route_guard_enable}" != "true" && "${route_guard_enable}" != "True" && "${route_guard_enable}" != "1" ]]; then
     bashio::log.info "Route guard disabled – idling"
