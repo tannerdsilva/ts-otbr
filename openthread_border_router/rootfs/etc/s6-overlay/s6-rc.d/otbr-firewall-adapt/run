@@ -1,0 +1,56 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+
+# -----------------------------------------------------------------
+# Configuration
+# -----------------------------------------------------------------
+INTERVAL=$(bashio::config 'adaptive_firewall_interval' || echo 5)
+ENABLED=$(bashio::config 'adaptive_firewall' || echo true)
+
+if [[ "$ENABLED" != "true" ]]; then
+    bashio::log.info "Adaptive firewall disabled – exiting"
+    exec sleep infinity
+fi
+
+# -----------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------
+get_omr_prefix()   { ... }
+get_mesh_prefix()  { ... }
+query_same_ail()   { ... }          # returns "true" or "false"
+apply_strict()     { ... }
+apply_relaxed()    { ... }
+
+# -----------------------------------------------------------------
+# Wait for prerequisites
+# -----------------------------------------------------------------
+bashio::log.info "Waiting for otbr-agent and ipsets..."
+until ot-ctl state &>/dev/null && ipset list otbr-ingress-deny-src &>/dev/null; do
+    sleep 2
+done
+
+# -----------------------------------------------------------------
+# Main loop
+# -----------------------------------------------------------------
+current_mode=""
+bashio::log.info "otbr-firewall-adapt started (interval ${INTERVAL}s)"
+
+while true; do
+    if query_same_ail; then
+        desired="relaxed"
+    else
+        desired="strict"
+    fi
+
+    if [[ "$desired" != "$current_mode" ]]; then
+        if [[ "$desired" == "relaxed" ]]; then
+            apply_relaxed
+        else
+            apply_strict
+        fi
+        current_mode="$desired"
+        bashio::log.info "Firewall mode → $desired"
+    fi
+
+    sleep "$INTERVAL"
+done
