@@ -241,8 +241,63 @@ table ip6 otbr {
 }
 EOF
 
-nft list chain ip6 filter DOCKER-USER >/dev/null 2>&1 && \
-nft insert rule ip6 filter DOCKER-USER iifname "${backbone_if}" oifname "${thread_if}" counter accept
+# ------------------------------------------------------------------
+# Punch a hole in Docker's default-deny IPv6 FORWARD policy.
+# Docker only accepts traffic from hassio/docker0; Thread traffic
+# (backbone ↔ wpan0) would otherwise be dropped.
+# DOCKER-USER is evaluated first and is the supported extension point.
+# ------------------------------------------------------------------
+setup_docker_user_forward() {
+  local backbone="${1}"
+  local thread="${2}"
+
+  # Wait briefly for Docker to create the chain (race on boot)
+  local i=0
+  while [ "$i" -lt 15 ]; do
+    if nft list chain ip6 filter DOCKER-USER >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+
+  if ! nft list chain ip6 filter DOCKER-USER >/dev/null 2>&1; then
+    bashio::log.warning "ip6 filter DOCKER-USER not present; skipping Docker forward hole"
+    return 0
+  fi
+
+  # Remove any previous rules we may have inserted (idempotent restart)
+  # Match by comment so we don't touch other user rules.
+  while nft -a list chain ip6 filter DOCKER-USER 2>/dev/null | \
+        grep -q 'otbr-docker-forward'; do
+    local handle
+    handle=$(nft -a list chain ip6 filter DOCKER-USER 2>/dev/null | \
+             awk '/otbr-docker-forward/ {print $NF; exit}')
+    [ -n "$handle" ] || break
+    nft delete rule ip6 filter DOCKER-USER handle "$handle" 2>/dev/null || break
+  done
+
+  # Bidirectional allow for the Thread interface
+  nft insert rule ip6 filter DOCKER-USER \
+    iifname "${backbone}" oifname "${thread}" \
+    counter accept comment \"otbr-docker-forward\"
+
+  nft insert rule ip6 filter DOCKER-USER \
+    iifname "${thread}" oifname "${backbone}" \
+    counter accept comment \"otbr-docker-forward\"
+
+  # Catch-all for anything involving the Thread radio
+  # (covers edge cases, hairpin, other interfaces)
+  nft insert rule ip6 filter DOCKER-USER \
+    oifname "${thread}" counter accept comment \"otbr-docker-forward\"
+
+  nft insert rule ip6 filter DOCKER-USER \
+    iifname "${thread}" counter accept comment \"otbr-docker-forward\"
+
+  bashio::log.info "Inserted Docker DOCKER-USER forward rules for ${backbone} ↔ ${thread}"
+}
+
+setup_docker_user_forward "${backbone_if}" "${thread_if}"
 
 # Sync current ipset contents into the nft sets so that any prefixes
 # already present (or later updated by otbr-agent via the classic ipset
