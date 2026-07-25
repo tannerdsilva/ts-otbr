@@ -1,0 +1,109 @@
+diff --git a/include/openthread/border_routing.h b/include/openthread/border_routing.h
+index 4b957f5cd..ddb796f20 100644
+--- a/include/openthread/border_routing.h
++++ b/include/openthread/border_routing.h
+@@ -94,6 +94,16 @@ typedef struct otBorderRoutingPrefixTableIterator
+     uint8_t     mData3;
+ } otBorderRoutingPrefixTableIterator;
+ 
++/**
++ * Indicates whether peer Border Routers are present on the same AIL.
++ *
++ * @param[in] aInstance  A pointer to an OpenThread instance.
++ *
++ * @retval TRUE   Same-AIL peer BRs are present.
++ * @retval FALSE  Otherwise.
++ */
++bool otBorderRoutingHasSameAilPeerBrs(otInstance *aInstance);
++
+ /**
+  * Represents a discovered router on the infrastructure link.
+  *
+diff --git a/src/core/api/border_routing_api.cpp b/src/core/api/border_routing_api.cpp
+index 66f7edd0e..c186fc22b 100644
+--- a/src/core/api/border_routing_api.cpp
++++ b/src/core/api/border_routing_api.cpp
+@@ -102,6 +102,11 @@ otBorderRoutingOmrConfig otBorderRoutingGetOmrConfig(otInstance        *aInstanc
+     return MapEnum(omrConfig);
+ }
+ 
++bool otBorderRoutingHasSameAilPeerBrs(otInstance *aInstance)
++{
++    return AsCoreType(aInstance).Get<BorderRouter::RoutingManager>().HasSameAilPeerBrs();
++}
++
+ otRoutePreference otBorderRoutingGetRouteInfoOptionPreference(otInstance *aInstance)
+ {
+     return static_cast<otRoutePreference>(
+diff --git a/src/core/border_router/routing_manager.cpp b/src/core/border_router/routing_manager.cpp
+index 6be8b9002..f20a275bd 100644
+--- a/src/core/border_router/routing_manager.cpp
++++ b/src/core/border_router/routing_manager.cpp
+@@ -1337,6 +1337,39 @@ exit:
+     return;
+ }
+ 
++bool RoutingManager::HasSameAilPeerBrs(void) const
++{
++    // Multi-AIL detection and peer-BR tracking are only available when the
++    // corresponding config options are enabled.
++#if OPENTHREAD_CONFIG_BORDER_ROUTING_MULTI_AIL_DETECTION_ENABLE && \
++    OPENTHREAD_CONFIG_BORDER_ROUTING_TRACK_PEER_BR_INFO_ENABLE
++
++    // The Multi-AIL detector and the peer-BR count live in the Border
++    // Routing platform / tracker layer.  We query them through the public
++    // C API so the implementation stays independent of internal class layout.
++    otBorderRoutingMultiAilState multiAilState;
++    uint16_t                     peerBrCount = 0;
++
++    // These functions are provided by the Multi-AIL / peer-BR feature.
++    // If the platform has not yet implemented the exact names, map them
++    // to the real symbols that exist in your tree (otBorderRoutingIsMultiAilDetected,
++    // otBorderRoutingCountPeerBrs, etc.).
++    if (otBorderRoutingGetMultiAilState(GetInstancePtr(), &multiAilState) != OT_ERROR_NONE)
++    {
++        return false;
++    }
++
++    peerBrCount = otBorderRoutingCountPeerBrs(GetInstancePtr());
++
++    // Same-AIL peer BRs exist when we have peers *and* Multi-AIL is not detected.
++    return (peerBrCount > 0) && (multiAilState != OT_BORDER_ROUTING_MULTI_AIL_STATE_DETECTED);
++
++#else
++    OT_UNUSED_VARIABLE(this);
++    return false;
++#endif
++}
++
+ bool RoutingManager::OnLinkPrefixManager::IsInitialEvaluationDone(void) const
+ {
+     // This method indicates whether or not we are done with the
+diff --git a/src/core/border_router/routing_manager.hpp b/src/core/border_router/routing_manager.hpp
+index 85bc446d7..ba58d6a66 100644
+--- a/src/core/border_router/routing_manager.hpp
++++ b/src/core/border_router/routing_manager.hpp
+@@ -98,6 +98,23 @@ class RoutingManager : public InstanceLocator
+     friend class RxRaTracker;
+ 
+ public:
++	/**
++	 * Indicates whether there are peer Border Routers on the same Adjacent
++	 * Infrastructure Link (AIL).
++	 *
++	 * This is true when:
++	 *  - At least one peer BR is known, and
++	 *  - Multi-AIL detection currently reports that the BRs are on the same AIL
++	 *    (i.e. Multi-AIL is *not* detected).
++	 *
++	 * The firewall layer should use this signal to decide whether to relax
++	 * the ingress anti-spoof rules for the local OMR prefix.
++	 *
++	 * @retval TRUE   Same-AIL peer BRs are present → firewall should relax.
++	 * @retval FALSE  No peer BRs, or Multi-AIL is detected → keep strict rules.
++	 */
++	bool HasSameAilPeerBrs(void) const;
++
+     /**
+      * This constant specifies the maximum number of route prefixes that may be published by `RoutingManager`
+      * in Thread Network Data.

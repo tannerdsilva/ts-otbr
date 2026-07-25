@@ -107,6 +107,7 @@ COPY 0003-suggested-ula-prefix-agent-stable.patch /usr/src/
 COPY 0004-suggested-ula-prefix-core-stable.patch /usr/src/
 COPY 0005-disable-fc00-route.patch /usr/src/
 COPY 0006-ula-routes.patch /usr/src/
+COPY 0007-multi-ail.patch /usr/src/
 
 WORKDIR /usr/src
 RUN \
@@ -139,7 +140,8 @@ RUN \
     && patch -p1 < /usr/src/0003-suggested-ula-prefix-agent-stable.patch \
     && patch -p1 -d third_party/openthread/repo < /usr/src/0004-suggested-ula-prefix-core-stable.patch \
     && patch -p1 -d third_party/openthread/repo < /usr/src/0005-disable-fc00-route.patch \
-    && patch -p1 -d third_party/openthread/repo < /usr/src/0006-ula-routes.patch
+    && patch -p1 -d third_party/openthread/repo < /usr/src/0006-ula-routes.patch \
+    && patch -p1 -d third_party/openthread/repo < /usr/src/0007-multi-ail.patch
 
 WORKDIR /usr/src/ot-br-posix
 RUN \
