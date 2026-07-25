@@ -29,14 +29,11 @@ get_mesh_prefix() {
 }
 
 query_same_ail() {
-    # Returns 0 (true) when we should run in relaxed mode
     local multi_ail peer_count
+    multi_ail=$(ot-ctl br multiail state 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)
+    peer_count=$(ot-ctl br peers 2>/dev/null | grep -c 'rloc16:' || echo 0)
 
-    multi_ail=$(ot-ctl br multiail state 2>/dev/null | tr '[:upper:]' '[:lower:]')
-    peer_count=$(ot-ctl br peers 2>/dev/null | grep -c 'rloc16:' || true)
-
-    # Relaxed only when we have peer BRs AND Multi-AIL is not detected
-    if [[ "${peer_count}" -gt 0 ]] && [[ "${multi_ail}" != *"detected: yes"* ]]; then
+    if [[ "$$   {peer_count}" -gt 0 ]] && [[ "   $${multi_ail}" != *"detected: yes"* ]]; then
         return 0
     fi
     return 1
@@ -78,10 +75,30 @@ apply_relaxed() {
 }
 
 # -----------------------------------------------------------------
-# Wait for prerequisites
+# Wait for prerequisites (robust)
 # -----------------------------------------------------------------
 bashio::log.info "Waiting for otbr-agent and ipsets..."
-until ot-ctl state &>/dev/null && ipset list otbr-ingress-deny-src &>/dev/null; do
+
+# Give the agent a chance to fully start before we hammer ot-ctl
+sleep 8
+
+MAX_WAIT=60
+count=0
+while true; do
+    if ipset list otbr-ingress-deny-src &>/dev/null; then
+        # Only try ot-ctl once the ipset exists (agent has progressed)
+        if ot-ctl state &>/dev/null; then
+            bashio::log.info "otbr-agent and ipsets are ready"
+            break
+        fi
+    fi
+
+    count=$((count + 1))
+    if [[ $count -ge $MAX_WAIT ]]; then
+        bashio::log.error "Timed out waiting for otbr-agent / ipsets after ${MAX_WAIT}s"
+        exec sleep infinity   # stay alive so s6 does not thrash
+    fi
+
     sleep 2
 done
 
@@ -91,6 +108,9 @@ done
 current_mode=""
 bashio::log.info "otbr-firewall-adapt started (interval ${INTERVAL}s)"
 
+# Force an initial evaluation so we always log the first mode
+force_first=true
+
 while true; do
     if query_same_ail; then
         desired="relaxed"
@@ -98,13 +118,14 @@ while true; do
         desired="strict"
     fi
 
-    if [[ "${desired}" != "${current_mode}" ]]; then
+    if [[ "${desired}" != "${current_mode}" || "${force_first}" == "true" ]]; then
         if [[ "${desired}" == "relaxed" ]]; then
             apply_relaxed
         else
             apply_strict
         fi
         current_mode="${desired}"
+        force_first=false
         bashio::log.info "Firewall mode → ${desired}"
     fi
 
