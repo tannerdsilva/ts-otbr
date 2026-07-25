@@ -30,10 +30,17 @@ get_mesh_prefix() {
 
 query_same_ail() {
     local multi_ail peer_count
-    multi_ail=$(ot-ctl br multiail state 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)
-    peer_count=$(ot-ctl br peers 2>/dev/null | grep -c 'rloc16:' || echo 0)
 
-    if [[ "$$   {peer_count}" -gt 0 ]] && [[ "   $${multi_ail}" != *"detected: yes"* ]]; then
+    # Get Multi-AIL state (best-effort)
+    multi_ail=$(ot-ctl br multiail state 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)
+
+    # Count peer BRs – force a pure integer
+    peer_count=$(ot-ctl br peers 2>/dev/null | grep -c 'rloc16:' || true)
+    peer_count=${peer_count//[^0-9]/}   # keep only digits
+    peer_count=${peer_count:-0}         # default to 0 if empty
+
+    # Relaxed only when we have peer BRs AND Multi-AIL is not detected
+    if (( peer_count > 0 )) && [[ "${multi_ail}" != *"detected: yes"* ]]; then
         return 0
     fi
     return 1
