@@ -1,8 +1,8 @@
 #!/usr/bin/with-contenv bashio
 # shellcheck shell=bash
-# ==============================================================================
-# Adaptive firewall for multi-BR / same-AIL operation
-# ==============================================================================
+
+# Disable automatic exit on error – we handle failures ourselves
+set +e
 
 # -----------------------------------------------------------------
 # Configuration
@@ -16,30 +16,24 @@ if [[ "${ENABLED}" != "true" && "${ENABLED}" != "True" && "${ENABLED}" != "1" ]]
 fi
 
 # -----------------------------------------------------------------
-# Helpers
+# Helpers – every ot-ctl call is fully failure-tolerant
 # -----------------------------------------------------------------
 get_omr_prefix() {
-    # Example: "Local: fd6e:fc15:fff0:1::/64"
-    ot-ctl br omrprefix 2>/dev/null | awk '/Local:/ {print $2; exit}'
+    ot-ctl br omrprefix 2>/dev/null | awk '/Local:/ {print $2; exit}' || true
 }
 
 get_mesh_prefix() {
-    # Take the mesh-local /64 from the first RLOC-style address
-    ot-ctl ipaddr 2>/dev/null | grep -oE 'fd[0-9a-f:]+:[0-9a-f]+::/64' | head -1
+    ot-ctl ipaddr 2>/dev/null | grep -oE 'fd[0-9a-f:]+:[0-9a-f]+::/64' | head -1 || true
 }
 
 query_same_ail() {
     local multi_ail peer_count
 
-    # Get Multi-AIL state (best-effort)
     multi_ail=$(ot-ctl br multiail state 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)
-
-    # Count peer BRs – force a pure integer
     peer_count=$(ot-ctl br peers 2>/dev/null | grep -c 'rloc16:' || true)
-    peer_count=${peer_count//[^0-9]/}   # keep only digits
-    peer_count=${peer_count:-0}         # default to 0 if empty
+    peer_count=${peer_count//[^0-9]/}
+    peer_count=${peer_count:-0}
 
-    # Relaxed only when we have peer BRs AND Multi-AIL is not detected
     if (( peer_count > 0 )) && [[ "${multi_ail}" != *"detected: yes"* ]]; then
         return 0
     fi
@@ -51,15 +45,15 @@ apply_strict() {
     omr=$(get_omr_prefix)
     mesh=$(get_mesh_prefix)
 
-    [[ -z "${omr}" ]] && return
+    [[ -z "${omr}" ]] && {
+        bashio::log.warning "STRICT: could not determine OMR prefix – skipping"
+        return
+    }
 
-    bashio::log.debug "Applying STRICT mode (OMR=${omr})"
-
-    # Deny list – both prefixes
+    bashio::log.debug "Applying STRICT (OMR=${omr})"
     ipset add -exist otbr-ingress-deny-src "${omr}" 2>/dev/null || true
     [[ -n "${mesh}" ]] && ipset add -exist otbr-ingress-deny-src "${mesh}" 2>/dev/null || true
 
-    # Allow list – only OMR
     ipset flush otbr-ingress-allow-dst 2>/dev/null || true
     ipset add -exist otbr-ingress-allow-dst "${omr}" 2>/dev/null || true
 }
@@ -69,31 +63,28 @@ apply_relaxed() {
     omr=$(get_omr_prefix)
     mesh=$(get_mesh_prefix)
 
-    [[ -z "${omr}" ]] && return
+    [[ -z "${omr}" ]] && {
+        bashio::log.warning "RELAXED: could not determine OMR prefix – skipping"
+        return
+    }
 
-    bashio::log.debug "Applying RELAXED mode (OMR=${omr})"
-
-    # Remove OMR from deny list (keep mesh-local if present)
+    bashio::log.debug "Applying RELAXED (OMR=${omr})"
     ipset del otbr-ingress-deny-src "${omr}" 2>/dev/null || true
 
-    # Allow list – OMR + mesh-local
     ipset add -exist otbr-ingress-allow-dst "${omr}" 2>/dev/null || true
     [[ -n "${mesh}" ]] && ipset add -exist otbr-ingress-allow-dst "${mesh}" 2>/dev/null || true
 }
 
 # -----------------------------------------------------------------
-# Wait for prerequisites (robust)
+# Wait for prerequisites
 # -----------------------------------------------------------------
 bashio::log.info "Waiting for otbr-agent and ipsets..."
-
-# Give the agent a chance to fully start before we hammer ot-ctl
 sleep 8
 
-MAX_WAIT=60
+MAX_WAIT=90
 count=0
 while true; do
     if ipset list otbr-ingress-deny-src &>/dev/null; then
-        # Only try ot-ctl once the ipset exists (agent has progressed)
         if ot-ctl state &>/dev/null; then
             bashio::log.info "otbr-agent and ipsets are ready"
             break
@@ -102,39 +93,39 @@ while true; do
 
     count=$((count + 1))
     if [[ $count -ge $MAX_WAIT ]]; then
-        bashio::log.error "Timed out waiting for otbr-agent / ipsets after ${MAX_WAIT}s"
-        exec sleep infinity   # stay alive so s6 does not thrash
+        bashio::log.error "Timed out waiting for otbr-agent / ipsets"
+        exec sleep infinity
     fi
-
     sleep 2
 done
 
 # -----------------------------------------------------------------
-# Main loop
+# Main loop – never exit
 # -----------------------------------------------------------------
 current_mode=""
+force_first=true
 bashio::log.info "otbr-firewall-adapt started (interval ${INTERVAL}s)"
 
-# Force an initial evaluation so we always log the first mode
-force_first=true
-
 while true; do
-    if query_same_ail; then
-        desired="relaxed"
-    else
-        desired="strict"
-    fi
-
-    if [[ "${desired}" != "${current_mode}" || "${force_first}" == "true" ]]; then
-        if [[ "${desired}" == "relaxed" ]]; then
-            apply_relaxed
+    # Protect the whole iteration so a single failure cannot kill us
+    {
+        if query_same_ail; then
+            desired="relaxed"
         else
-            apply_strict
+            desired="strict"
         fi
-        current_mode="${desired}"
-        force_first=false
-        bashio::log.info "Firewall mode → ${desired}"
-    fi
+
+        if [[ "${desired}" != "${current_mode}" || "${force_first}" == "true" ]]; then
+            if [[ "${desired}" == "relaxed" ]]; then
+                apply_relaxed
+            else
+                apply_strict
+            fi
+            current_mode="${desired}"
+            force_first=false
+            bashio::log.info "Firewall mode → ${desired}"
+        fi
+    } || bashio::log.warning "Iteration failed – will retry"
 
     sleep "${INTERVAL}"
 done
