@@ -162,6 +162,11 @@ table ip6 otbr {
 
         # 1. Stateful return traffic
         ct state established,related accept
+        
+        # ===== DIAGNOSTIC COUNTERS =====
+		ip6 saddr @otbr-ingress-deny-src counter packets 0 bytes 0 comment "DIAG: would-be-denied by deny-src"
+		counter packets 0 bytes 0 comment "DIAG: packets reaching end of chain (potential default-deny)"
+		# ===== END DIAGNOSTIC =====
 
         # 2. Essential ICMPv6 (PMTU, errors, diagnostics)
         icmpv6 type {
