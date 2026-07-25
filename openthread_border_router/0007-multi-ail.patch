@@ -36,39 +36,28 @@ index 66f7edd0e..c186fc22b 100644
  {
      return static_cast<otRoutePreference>(
 diff --git a/src/core/border_router/routing_manager.cpp b/src/core/border_router/routing_manager.cpp
-index 6be8b9002..f20a275bd 100644
+index 6be8b9002..16158d706 100644
 --- a/src/core/border_router/routing_manager.cpp
 +++ b/src/core/border_router/routing_manager.cpp
-@@ -1337,6 +1337,39 @@ exit:
+@@ -1337,6 +1337,28 @@ exit:
      return;
  }
  
 +bool RoutingManager::HasSameAilPeerBrs(void) const
 +{
-+    // Multi-AIL detection and peer-BR tracking are only available when the
-+    // corresponding config options are enabled.
 +#if OPENTHREAD_CONFIG_BORDER_ROUTING_MULTI_AIL_DETECTION_ENABLE && \
 +    OPENTHREAD_CONFIG_BORDER_ROUTING_TRACK_PEER_BR_INFO_ENABLE
 +
-+    // The Multi-AIL detector and the peer-BR count live in the Border
-+    // Routing platform / tracker layer.  We query them through the public
-+    // C API so the implementation stays independent of internal class layout.
-+    otBorderRoutingMultiAilState multiAilState;
-+    uint16_t                     peerBrCount = 0;
-+
-+    // These functions are provided by the Multi-AIL / peer-BR feature.
-+    // If the platform has not yet implemented the exact names, map them
-+    // to the real symbols that exist in your tree (otBorderRoutingIsMultiAilDetected,
-+    // otBorderRoutingCountPeerBrs, etc.).
-+    if (otBorderRoutingGetMultiAilState(GetInstancePtr(), &multiAilState) != OT_ERROR_NONE)
++    // If Multi-AIL is detected, the peer BRs are on different infrastructure
++    // links → treat as "no same-AIL peers" for firewall purposes.
++    if (otBorderRoutingIsMultiAilDetected(GetInstancePtr()))
 +    {
 +        return false;
 +    }
 +
-+    peerBrCount = otBorderRoutingCountPeerBrs(GetInstancePtr());
-+
-+    // Same-AIL peer BRs exist when we have peers *and* Multi-AIL is not detected.
-+    return (peerBrCount > 0) && (multiAilState != OT_BORDER_ROUTING_MULTI_AIL_STATE_DETECTED);
++    // Multi-AIL is not detected → peers (if any) are on the same AIL.
++    // aMinAge can be nullptr if we don't care about the age of the oldest peer.
++    return otBorderRoutingCountPeerBrs(GetInstancePtr(), nullptr) > 0;
 +
 +#else
 +    OT_UNUSED_VARIABLE(this);
