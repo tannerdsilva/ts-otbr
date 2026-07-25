@@ -1,0 +1,103 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+
+# Disable automatic exit on error – we handle failures ourselves
+set +e
+
+route_guard_enable=$(bashio::config 'route_guard' 2>/dev/null || echo "true")
+route_guard_interval=$(bashio::config 'route_guard_interval' 2>/dev/null || echo 5)
+backbone_if=$(bashio::config 'backbone_if' 2>/dev/null || echo "end0")
+
+if [[ "${route_guard_enable}" != "true" && "${route_guard_enable}" != "True" && "${route_guard_enable}" != "1" ]]; then
+    bashio::log.info "Route guard disabled – idling"
+    exec sleep infinity
+fi
+
+# -----------------------------------------------------------------
+# Helpers – every call is fully failure-tolerant
+# -----------------------------------------------------------------
+get_omr_prefix() {
+    # Returns the Local OMR prefix (e.g. fd6e:fc15:fff0:1::/64)
+    ot-ctl br omrprefix 2>/dev/null | awk '/Local:/ {print $2; exit}' || true
+}
+
+get_omr_48() {
+    # Derive the covering /48 from the OMR prefix (Thread ULA /48)
+    local omr
+    omr=$(get_omr_prefix)
+    if [[ -n "${omr}" ]]; then
+        # Take the first three hextets and force /48
+        echo "${omr}" | awk -F: '{printf "%s:%s:%s::/48\n", $1, $2, $3}'
+    fi
+}
+
+remove_bad_routes() {
+    local omr omr48
+    omr=$(get_omr_prefix)
+    omr48=$(get_omr_48)
+
+    [[ -z "${omr}" ]] && {
+        bashio::log.debug "No OMR prefix available yet"
+        return
+    }
+
+    # 1. Remove any RA-learned route for the exact OMR /64
+    #    (this is the multi-nexthop route that points at peer BRs)
+    if ip -6 route show "${omr}" 2>/dev/null | grep -q "proto ra"; then
+        bashio::log.info "Removing RA route for ${omr}"
+        ip -6 route del "${omr}" proto ra 2>/dev/null || true
+    fi
+
+    # 2. Remove any route for the OMR /64 that explicitly goes out the backbone
+    if ip -6 route show "${omr}" 2>/dev/null | grep -q "dev ${backbone_if}"; then
+        bashio::log.info "Removing backbone route for ${omr}"
+        ip -6 route del "${omr}" dev "${backbone_if}" 2>/dev/null || true
+    fi
+
+    # 3. Same treatment for the covering /48 (if present)
+    if [[ -n "${omr48}" ]]; then
+        if ip -6 route show "${omr48}" 2>/dev/null | grep -q "dev ${backbone_if}"; then
+            bashio::log.info "Removing backbone route for ${omr48}"
+            ip -6 route del "${omr48}" dev "${backbone_if}" 2>/dev/null || true
+        fi
+        if ip -6 route show "${omr48}" 2>/dev/null | grep -q "proto ra"; then
+            bashio::log.info "Removing RA route for ${omr48}"
+            ip -6 route del "${omr48}" proto ra 2>/dev/null || true
+        fi
+    fi
+}
+
+# -----------------------------------------------------------------
+# Wait for prerequisites
+# -----------------------------------------------------------------
+bashio::log.info "Route guard: waiting for otbr-agent..."
+sleep 8
+
+MAX_WAIT=90
+count=0
+while true; do
+    if ot-ctl state &>/dev/null; then
+        bashio::log.info "otbr-agent is ready"
+        break
+    fi
+
+    count=$((count + 1))
+    if [[ $count -ge $MAX_WAIT ]]; then
+        bashio::log.error "Timed out waiting for otbr-agent"
+        exec sleep infinity
+    fi
+    sleep 2
+done
+
+# -----------------------------------------------------------------
+# Main loop – never exit
+# -----------------------------------------------------------------
+bashio::log.info "Route guard started (interval ${route_guard_interval}s, backbone=${backbone_if})"
+
+while true; do
+    {
+        remove_bad_routes
+    } || bashio::log.warning "Route guard iteration failed – will retry"
+
+    sleep "${route_guard_interval}"
+done

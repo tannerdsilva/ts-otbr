@@ -1,5 +1,5 @@
 ---
-version: 3.0.37
+version: 3.0.38
 breaking_versions: [3.0.0]
 slug: tanners_openthread_border_router
 name: Tanners OpenThread Border Router
@@ -33,8 +33,8 @@ options:
   nat64: false
   beta: false
   ula_prefix: ""
-  adaptive_firewall: true
-  adaptive_firewall_interval: 5
+  route_guard_enable: true
+  route_guard_interval: 30
   8080/tcp: null
   8081/tcp: null
 ports_description:
@@ -51,6 +51,6 @@ schema:
   nat64: bool
   beta: bool?
   ula_prefix: str?
-  adaptive_firewall: bool
-  adaptive_firewall_interval: int
+  route_guard_enable: bool
+  route_guard_interval: int
 startup: services

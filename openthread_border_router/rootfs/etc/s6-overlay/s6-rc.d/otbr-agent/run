@@ -78,6 +78,8 @@ sysctl -w net.ipv6.conf.default.accept_ra=0          >/dev/null 2>&1 || true
 sysctl -w net.ipv6.conf.default.accept_ra_defrtr=0   >/dev/null 2>&1 || true
 sysctl -w net.ipv6.conf.default.accept_ra_pinfo=0    >/dev/null 2>&1 || true
 sysctl -w net.ipv6.conf.default.forwarding=1         >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.end0.accept_ra_rt_info_max_plen=0
+
 # Optional:
 # sysctl -w net.ipv6.conf.default.router_solicitations=0 >/dev/null 2>&1 || true
 
