@@ -139,7 +139,7 @@ table ip6 otbr {
     chain output {
         type filter hook output priority -150; policy accept;
 
-		oifname "${backbone_if}" icmpv6 type nd-router-advert counter comment "RA out backbone interface"
+		oifname "${backbone_if}" icmpv6 type nd-router-advert counter accept comment "RA out backbone interface"
 
         oifname "${thread_if}" udp dport 5353 ip6 daddr ff02::fb counter drop comment "block local mDNS to Thread mesh"
         oifname "${thread_if}" udp dport 5355 meta pkttype multicast counter drop comment "block LLMNR to Thread mesh"
@@ -240,6 +240,9 @@ table ip6 otbr {
     }
 }
 EOF
+
+nft list chain ip6 filter DOCKER-USER >/dev/null 2>&1 && \
+nft insert rule ip6 filter DOCKER-USER iifname "${backbone_if}" oifname "${thread_if}" counter accept
 
 # Sync current ipset contents into the nft sets so that any prefixes
 # already present (or later updated by otbr-agent via the classic ipset
