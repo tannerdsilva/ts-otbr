@@ -107,7 +107,7 @@ COPY 0003-suggested-ula-prefix-agent-stable.patch /usr/src/
 COPY 0004-suggested-ula-prefix-core-stable.patch /usr/src/
 COPY 0005-disable-fc00-route.patch /usr/src/
 COPY 0006-ula-routes.patch /usr/src/
-COPY 0007-multi-ail.patch /usr/src/
+COPY 0007-routing-uplink-compliance.patch /usr/src/
 
 WORKDIR /usr/src
 RUN \
