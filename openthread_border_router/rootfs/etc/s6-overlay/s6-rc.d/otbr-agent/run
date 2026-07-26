@@ -212,7 +212,7 @@ table ip6 otbr {
     }
 
     chain from_thread_to_thread {
-        accept
+        counter accept
     }
 
     chain otbr_from_thread {
@@ -232,17 +232,17 @@ table ip6 otbr {
             destination-unreachable, packet-too-big,
             time-exceeded, parameter-problem,
             echo-request, echo-reply
-        } accept
+        } counter accept
 
         # RAs from the Thread side are required (BR advertises RIOs on backbone)
         icmpv6 type {
-            nd-router-solicit, nd-router-advert,
-            nd-neighbor-solicit, nd-neighbor-advert,
-            nd-redirect,
-            mld-listener-query, mld-listener-report, mld2-listener-report
-        } ip6 hoplimit 255 accept
-
-        accept
+            nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert,
+            nd-redirect, mld-listener-query, mld-listener-report, mld2-listener-report
+        } ip6 hoplimit 255 counter accept
+        
+        icmpv6 type nd-router-advert counter drop
+	
+        counter accept
     }
 }
 EOF
