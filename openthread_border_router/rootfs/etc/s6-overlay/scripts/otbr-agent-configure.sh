@@ -5,6 +5,8 @@
 # Configure OTBR depending on add-on settings
 # ==============================================================================
 
+# the stock border routing manager is no good. we will statically route this container ourselves.
+ot-ctl br disable
 ot-ctl trel enable
 
 if bashio::config.true 'nat64'; then
