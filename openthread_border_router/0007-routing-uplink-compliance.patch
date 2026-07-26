@@ -1,0 +1,26 @@
+diff --git a/src/core/border_router/routing_manager.cpp b/src/core/border_router/routing_manager.cpp
+index 6be8b9002..d5d6c08b7 100644
+--- a/src/core/border_router/routing_manager.cpp
++++ b/src/core/border_router/routing_manager.cpp
+@@ -1962,6 +1962,12 @@ void RoutingManager::RoutePublisher::Evaluate(void)
+ 
+     VerifyOrExit(Get<RoutingManager>().IsRunning());
+ 
++    // Router Model Enforcement: Thread 1.2+ spec prohibits publishing ULA/default
++    // routes into Thread Network Data. Backbone routing is handled exclusively
++    // via infrastructure RAs/RIOs. Publishing here causes routing loops and metric conflicts.
++    newState = kDoNotPublish;
++    goto exit;
++
+     if (Get<RoutingManager>().mOmrPrefixManager.GetFavoredPrefix().IsInfrastructureDerived() &&
+         Get<RxRaTracker>().ContainsDefaultOrNonUlaRoutePrefix())
+     {
+@@ -1984,6 +1990,8 @@ exit:
+         UpdatePublishedRoute(newState);
+         Get<RoutingManager>().mOmrPrefixManager.UpdateDefaultRouteFlag(newState == kPublishDefault);
+     }
++
++    return;
+ }
+ 
+ void RoutingManager::RoutePublisher::DeterminePrefixFor(State aState, Ip6::Prefix &aPrefix) const

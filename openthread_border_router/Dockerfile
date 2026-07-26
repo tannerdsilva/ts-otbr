@@ -141,7 +141,7 @@ RUN \
     && patch -p1 -d third_party/openthread/repo < /usr/src/0004-suggested-ula-prefix-core-stable.patch \
     && patch -p1 -d third_party/openthread/repo < /usr/src/0005-disable-fc00-route.patch \
     && patch -p1 -d third_party/openthread/repo < /usr/src/0006-ula-routes.patch \
-    && patch -p1 -d third_party/openthread/repo < /usr/src/0007-multi-ail.patch
+    && patch -p1 -d third_party/openthread/repo < /usr/src/0007-routing-uplink-compliance.patch
 
 WORKDIR /usr/src/ot-br-posix
 RUN \

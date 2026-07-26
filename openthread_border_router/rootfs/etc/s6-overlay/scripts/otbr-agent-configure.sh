@@ -8,9 +8,29 @@
 ot-ctl trel enable
 
 if bashio::config.true 'nat64'; then
-    bashio::log.info "Enabling NAT64."
+    bashio::log.info "Enabling NAT64 and Border Router stack."
+    
+    # 1. Enable Border Routing Manager (required for NAT64 prefix management & IPv6 routing)
+    ot-ctl br enable
+    # 2. Publish local prefixes/routes to the Thread network
+    ot-ctl netdata register
+    # 3. Enable NAT64 Translator & Prefix Manager
     ot-ctl nat64 enable
+    # 4. Enable SRP Server (standard companion to BR for DNS/SRP resolution)
+    ot-ctl srp server enable
+    # 5. Enable DNS upstream (verify exact syntax for your environment)
     ot-ctl dns server upstream enable
+else
+    bashio::log.info "Disabling NAT64 and Border Router stack."
+    
+    # 1. Disable DNS upstream first (reverse order to avoid dangling dependencies)
+    ot-ctl dns server upstream disable
+    # 2. Disable SRP Server
+    ot-ctl srp server disable
+    # 3. Disable NAT64 Translator & Prefix Manager
+    ot-ctl nat64 disable
+    # 4. Disable Border Routing Manager
+    ot-ctl br disable
 fi
 
 mdns_localhostname="$(hostname)-otbr"
