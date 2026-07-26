@@ -1,5 +1,5 @@
 ---
-version: 3.0.44
+version: 3.0.45
 breaking_versions: [3.0.0]
 slug: tanners_openthread_border_router
 name: Tanners OpenThread Border Router
@@ -33,6 +33,7 @@ options:
   nat64: false
   beta: false
   ula_prefix: ""
+  custom_omr_prefix: ""
   route_guard_enable: true
   route_guard_interval: 30
   8080/tcp: null
@@ -53,4 +54,5 @@ schema:
   ula_prefix: str?
   route_guard_enable: bool
   route_guard_interval: int
+  custom_omr_prefix: str?
 startup: services
