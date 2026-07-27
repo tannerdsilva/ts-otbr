@@ -27,16 +27,35 @@ ot-ctl br enable
 # ==============================================================================
 # Custom OMR Prefix + Preference
 # ==============================================================================
-for i in {1..40}; do
-    if ot-ctl state >/dev/null 2>&1; then
-        break
-    fi
-    sleep 1
-done
+if bashio::config.has_value 'custom_omr_prefix'; then
+    DESIRED_PREFIX=$(bashio::config 'custom_omr_prefix')
+    PREFERENCE=$(bashio::config 'custom_omr_preference' 'med')   # default to med
 
-# ==============================================================================
-# Route preference (applies to external routes published by the BR)
-# ==============================================================================
-ROUTE_PRF=$(bashio::config 'custom_route_preference' 'med')
-bashio::log.info "Setting Border Router route preference to ${ROUTE_PRF}"
-ot-ctl br routeprf "${ROUTE_PRF}" || bashio::log.warning "Failed to set br routeprf"
+    if [[ -n "$DESIRED_PREFIX" ]]; then
+        bashio::log.info "Custom OMR prefix requested: ${DESIRED_PREFIX} (preference: ${PREFERENCE})"
+
+        # Wait until ot-ctl is ready
+        for i in {1..40}; do
+            if ot-ctl state >/dev/null 2>&1; then
+                break
+            fi
+            sleep 1
+        done
+
+        # Check if already set correctly
+        CURRENT=$(ot-ctl br omrprefix local 2>/dev/null | awk '{print $2}' || true)
+
+        if [[ "$CURRENT" == "$DESIRED_PREFIX" ]]; then
+            bashio::log.info "✅ Custom OMR prefix already set to ${DESIRED_PREFIX}"
+        else
+            bashio::log.info "Applying custom OMR prefix: ${DESIRED_PREFIX} with preference ${PREFERENCE}"
+
+            if ot-ctl br omrconfig custom "${DESIRED_PREFIX}" "${PREFERENCE}"; then
+                bashio::log.info "✅ Successfully applied custom OMR prefix: ${DESIRED_PREFIX} (${PREFERENCE})"
+                sleep 2
+            else
+                bashio::log.error "❌ Failed to apply custom OMR prefix"
+            fi
+        fi
+    fi
+fi
