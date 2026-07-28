@@ -243,7 +243,7 @@ table ip6 otbr {
 			parameter-problem,
 			echo-request,
 			echo-reply
-		} ip6 saddr @otbr-ingress-allow-dst acceptaccept
+		} ip6 saddr @otbr-ingress-allow-dst accept
 	
 		# 3. Link-scoped ND / MLD
 		icmpv6 type {
