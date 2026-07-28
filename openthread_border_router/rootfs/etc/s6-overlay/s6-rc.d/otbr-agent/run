@@ -186,7 +186,7 @@ table ip6 otbr {
             parameter-problem,
             echo-request,
             echo-reply
-        } accept
+        } ip6 daddr @otbr-ingress-allow-dst accept
 
         # 3. Link-scoped ND/MLD (hop-limit 255 required). RAs deliberately excluded.
         icmpv6 type {
@@ -197,7 +197,7 @@ table ip6 otbr {
             mld-listener-query,
             mld-listener-report,
             mld2-listener-report
-        } ip6 hoplimit 255 accept
+        } ip6 hoplimit 255 ip6 daddr @otbr-ingress-allow-dst accept
 
         # 4. Anti-spoof / old-loop prevention (most important rule)
         ip6 saddr @otbr-ingress-deny-src counter reject comment "drop Thread-sourced packets arriving from Ethernet"
@@ -226,9 +226,6 @@ table ip6 otbr {
     }
 
     # ------------------------------------------------------------------
-    # Thread → backbone  (permissive – required for reachability)
-    # ------------------------------------------------------------------
-       # ------------------------------------------------------------------
     # Thread → backbone  (strict whitelist)
     # ------------------------------------------------------------------
     chain from_thread_to_backbone {
@@ -246,7 +243,7 @@ table ip6 otbr {
 			parameter-problem,
 			echo-request,
 			echo-reply
-		} accept
+		} ip6 saddr @otbr-ingress-allow-dst acceptaccept
 	
 		# 3. Link-scoped ND / MLD
 		icmpv6 type {
@@ -257,7 +254,7 @@ table ip6 otbr {
 			mld-listener-query,
 			mld-listener-report,
 			mld2-listener-report
-		} ip6 hoplimit 255 accept
+		} ip6 hoplimit 255 ip6 saddr @otbr-ingress-allow-dst counter accept
 	
 		# 4. Never forward RAs that originated inside Thread
 		icmpv6 type nd-router-advert counter drop comment "drop Thread-originated RAs"
