@@ -165,11 +165,18 @@ table ip6 otbr {
 
         # 1. Stateful return traffic
         ct state established,related accept
+        
+        # kill common control-plane related mutlicast and broadcast
+        meta pkttype { multicast, broadcast } udp dport {
+            5353,        # mDNS
+            5355,        # LLMNR
+            1900,        # SSDP
+            61631,       # TMF
+            546, 547,    # DHCPv6
+            5350, 5351,  # NAT-PMP/PCP
+            19788        # common TREL port (extra safety)
+        } counter drop
 
-        # ===== DIAGNOSTIC (safe to leave during recovery) =====
-        ip6 saddr @otbr-ingress-deny-src counter comment "DIAG: would-be-denied by deny-src"
-        counter comment "DIAG: packets reaching later rules"
-        # ===== END DIAGNOSTIC =====
 
         # 2. Essential ICMPv6 only
         icmpv6 type {
@@ -193,30 +200,19 @@ table ip6 otbr {
         } ip6 hoplimit 255 accept
 
         # 4. Anti-spoof / old-loop prevention (most important rule)
-        ip6 saddr @otbr-ingress-deny-src counter drop comment "drop Thread-sourced packets arriving from Ethernet"
+        ip6 saddr @otbr-ingress-deny-src counter reject comment "drop Thread-sourced packets arriving from Ethernet"
 
         # 5. Never inject link-local unicast into the mesh
-        ip6 daddr fe80::/10 counter drop comment "drop link-local unicast from backbone"
+        ip6 daddr fe80::/10 counter reject comment "drop link-local unicast from backbone"
 
         # 6. WHITELIST – only unicast to currently published OMR/DUA prefixes
-        ip6 daddr @otbr-ingress-allow-dst meta l4proto { tcp, udp, icmpv6 } accept comment "whitelist OMR/DUA only"
-
-        # 7. Kill every common discovery / control-plane multicast
-        meta pkttype { multicast, broadcast } udp dport {
-            5353,        # mDNS
-            5355,        # LLMNR
-            1900,        # SSDP
-            61631,       # TMF
-            546, 547,    # DHCPv6
-            5350, 5351,  # NAT-PMP/PCP
-            19788        # common TREL port (extra safety)
-        } counter drop
+        ip6 daddr @otbr-ingress-allow-dst meta l4proto { tcp, udp } ct state new counter accept comment "allow OMR only"
 
         # 8. Remaining multicast from backbone is treated as hostile during recovery
         meta pkttype { multicast, broadcast } counter drop comment "no multicast from backbone into Thread"
 
         # 9. Default deny
-        counter drop comment "default deny backbone→Thread"
+        counter reject comment "default deny backbone→Thread"
     }
 
     chain from_thread_to_thread {
@@ -232,34 +228,49 @@ table ip6 otbr {
     # ------------------------------------------------------------------
     # Thread → backbone  (permissive – required for reachability)
     # ------------------------------------------------------------------
+       # ------------------------------------------------------------------
+    # Thread → backbone  (strict whitelist)
+    # ------------------------------------------------------------------
     chain from_thread_to_backbone {
-        ct state invalid counter drop
-        ct state established,related accept
-
-        icmpv6 type {
-            destination-unreachable,
-            packet-too-big,
-            time-exceeded,
-            parameter-problem,
-            echo-request,
-            echo-reply
-        } counter accept
-
-        icmpv6 type {
-            nd-router-solicit,
-            nd-neighbor-solicit,
-            nd-neighbor-advert,
-            nd-redirect,
-            mld-listener-query,
-            mld-listener-report,
-            mld2-listener-report
-        } ip6 hoplimit 255 counter accept
-
-        # Forwarded RAs from Thread are unwanted; BR-generated RAs leave via OUTPUT
-        icmpv6 type nd-router-advert counter drop
-
-        counter accept
-    }
+		# 0. Drop garbage
+		ct state invalid counter drop
+	
+		# 1. Stateful return traffic
+		ct state established,related accept
+	
+		# 2. Essential ICMPv6
+		icmpv6 type {
+			destination-unreachable,
+			packet-too-big,
+			time-exceeded,
+			parameter-problem,
+			echo-request,
+			echo-reply
+		} accept
+	
+		# 3. Link-scoped ND / MLD
+		icmpv6 type {
+			nd-router-solicit,
+			nd-neighbor-solicit,
+			nd-neighbor-advert,
+			nd-redirect,
+			mld-listener-query,
+			mld-listener-report,
+			mld2-listener-report
+		} ip6 hoplimit 255 accept
+	
+		# 4. Never forward RAs that originated inside Thread
+		icmpv6 type nd-router-advert counter drop comment "drop Thread-originated RAs"
+	
+		# 5. WHITELIST – only packets sourced from published OMR/DUA prefixes
+		ip6 saddr @otbr-ingress-allow-dst accept comment "allow OMR/DUA sourced traffic"
+	
+		# 6. Hygiene
+		ip6 saddr fe80::/10 counter reject comment "drop link-local sourced packets to backbone"
+	
+		# 7. Default deny
+		counter reject comment "default deny Thread→backbone"
+	}
 }
 EOF
 
