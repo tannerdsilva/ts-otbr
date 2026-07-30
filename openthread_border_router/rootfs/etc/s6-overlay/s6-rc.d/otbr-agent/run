@@ -102,16 +102,27 @@ ipset create -exist otbr-ingress-deny-src-swap  hash:net family inet6
 ipset create -exist otbr-ingress-allow-dst      hash:net family inet6
 ipset create -exist otbr-ingress-allow-dst-swap hash:net family inet6
 
-# ------------------------------------------------------------------
-# Resolve TREL UDP port (ot-ctl prints "<port>" then "Done")
-# ------------------------------------------------------------------
-trel_port="$(ot-ctl trel port 2>/dev/null | head -n1 | tr -d '[:space:]')"
-if ! [[ "${trel_port}" =~ ^[0-9]+$ ]]; then
-    trel_port=""
-    echo "WARNING: could not parse TREL port from ot-ctl; TREL-specific rules skipped"
-else
-    echo "TREL port: ${trel_port}"
+trel_port=""
+if command -v ot-ctl >/dev/null 2>&1; then
+    # First line only; strip CR/spaces; keep digits only
+    trel_port=$(ot-ctl trel port 2>/dev/null | sed -n '1p' | tr -cd '0-9')
 fi
+
+case "${trel_port}" in
+    ''|*[!0-9]*)
+        trel_port=""
+        echo "WARNING: could not parse TREL port from ot-ctl; TREL-specific rules skipped"
+        ;;
+    *)
+        # Reject absurd values
+        if [ "${trel_port}" -lt 1 ] || [ "${trel_port}" -gt 65535 ]; then
+            trel_port=""
+            echo "WARNING: TREL port out of range; TREL-specific rules skipped"
+        else
+            echo "TREL port: ${trel_port}"
+        fi
+        ;;
+esac
 
 nft delete table ip6 otbr 2>/dev/null || true
 
