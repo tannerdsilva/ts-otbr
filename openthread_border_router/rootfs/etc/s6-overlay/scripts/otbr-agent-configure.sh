@@ -7,6 +7,47 @@
 
 ot-ctl trel enable
 
+# ------------------------------------------------------------------
+# Sync TREL UDP port into nftables set ip6 otbr trel_ports
+# (rules match @trel_ports; empty set = no TREL match until populated)
+# ------------------------------------------------------------------
+sync_trel_port_to_firewall() {
+    local trel_port=""
+    local i
+
+    # Wait for ot-ctl to report a numeric TREL port
+    for i in {1..30}; do
+        trel_port="$(ot-ctl trel port 2>/dev/null | head -n1 | tr -d '[:space:]')"
+        if [[ "${trel_port}" =~ ^[0-9]+$ ]]; then
+            break
+        fi
+        trel_port=""
+        sleep 1
+    done
+
+    if [[ ! "${trel_port}" =~ ^[0-9]+$ ]]; then
+        bashio::log.warning "TREL port not available yet; leaving nft trel_ports empty"
+        nft flush set ip6 otbr trel_ports 2>/dev/null || true
+        return 0
+    fi
+
+    # Firewall table/set may not exist yet if this runs before otbr firewall setup
+    if ! nft list set ip6 otbr trel_ports >/dev/null 2>&1; then
+        bashio::log.warning "nft set ip6 otbr trel_ports not found yet; will not sync port ${trel_port}"
+        return 0
+    fi
+
+    if nft flush set ip6 otbr trel_ports \
+        && nft add element ip6 otbr trel_ports "{ ${trel_port} }"; then
+        bashio::log.info "Synced TREL port ${trel_port} into nft set ip6 otbr trel_ports"
+    else
+        bashio::log.error "Failed to update nft set ip6 otbr trel_ports with port ${trel_port}"
+        return 1
+    fi
+}
+
+sync_trel_port_to_firewall
+
 if bashio::config.true 'nat64'; then
     bashio::log.info "Enabling NAT64."
     ot-ctl nat64 enable
@@ -59,3 +100,6 @@ if bashio::config.has_value 'custom_omr_prefix'; then
         fi
     fi
 fi
+
+# Re-sync TREL after br enable (port can change once border routing is up)
+sync_trel_port_to_firewall

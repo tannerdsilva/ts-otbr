@@ -135,6 +135,12 @@ table ip6 otbr {
         auto-merge
     }
 
+    # TREL UDP ports — update elements at runtime without reloading rules
+    set trel_ports {
+        type inet_service
+        comment "TREL UDP ports"
+    }
+
     chain forward {
         type filter hook forward priority mangle; policy accept;
         oifname "${thread_if}" jump otbr_to_thread
@@ -146,7 +152,13 @@ table ip6 otbr {
 
         iifname "lo" counter accept
         ct state invalid counter drop
-${trel_input}
+
+        # TREL: allow on backbone, reject on Thread
+        iifname "${backbone_if}" udp dport @trel_ports counter accept comment "allow TREL from backbone"
+        iifname "${backbone_if}" udp sport @trel_ports counter accept comment "allow TREL replies on backbone"
+        iifname "${thread_if}" udp dport @trel_ports counter reject comment "reject TREL on Thread"
+        iifname "${thread_if}" udp sport @trel_ports counter reject comment "reject TREL on Thread"
+
         iifname "${thread_if}" ct state established,related counter accept
 
         iifname "${thread_if}" icmpv6 type nd-router-advert counter drop comment "no RAs from Thread"
@@ -174,7 +186,13 @@ ${trel_input}
         type filter hook output priority filter; policy accept;
 
         oifname "lo" counter accept
-${trel_output}
+
+        # TREL: allow on backbone, never onto Thread
+        oifname "${backbone_if}" udp dport @trel_ports counter accept comment "allow TREL out backbone"
+        oifname "${backbone_if}" udp sport @trel_ports counter accept comment "allow TREL out backbone"
+        oifname "${thread_if}" udp dport @trel_ports counter drop comment "no TREL on Thread"
+        oifname "${thread_if}" udp sport @trel_ports counter drop comment "no TREL on Thread"
+
         oifname "${backbone_if}" icmpv6 type nd-router-advert counter accept
         oifname "${backbone_if}" icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter accept
 
@@ -196,7 +214,11 @@ ${trel_output}
 
     chain from_backbone_to_thread {
         ct state invalid counter drop
-${trel_bb2thr}
+
+        # TREL must never enter the mesh
+        udp dport @trel_ports counter reject comment "no TREL backbone to Thread"
+        udp sport @trel_ports counter reject comment "no TREL backbone to Thread"
+
         icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, nd-redirect } \\
             counter drop comment "no ND backbone to Thread"
 
@@ -234,7 +256,11 @@ ${trel_bb2thr}
 
     chain from_thread_to_backbone {
         ct state invalid counter drop
-${trel_thr2bb}
+
+        # TREL must never leave via the radio path
+        udp dport @trel_ports counter reject comment "no TREL Thread to backbone"
+        udp sport @trel_ports counter reject comment "no TREL Thread to backbone"
+
         icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop
         icmpv6 type nd-router-advert counter drop comment "no Thread RAs to backbone"
         icmpv6 type { nd-router-solicit, nd-redirect } counter drop comment "no RS/redirect Thread to backbone"
@@ -261,6 +287,7 @@ ${trel_thr2bb}
     }
 }
 EOF
+
 nft_status=$?
 if [ "$nft_status" -ne 0 ]; then
     echo "ERROR: nft failed with status ${nft_status}"
