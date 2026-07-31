@@ -88,14 +88,6 @@ ipset create -exist otbr-ingress-deny-src-swap  hash:net family inet6
 ipset create -exist otbr-ingress-allow-dst      hash:net family inet6
 ipset create -exist otbr-ingress-allow-dst-swap hash:net family inet6
 
-trel_port="$(ot-ctl trel port 2>/dev/null | head -n1 | tr -d '[:space:]')"
-if ! [[ "${trel_port}" =~ ^[0-9]+$ ]]; then
-    trel_port=""
-    echo "WARNING: could not parse TREL port; TREL rules skipped"
-else
-    echo "TREL port: ${trel_port}"
-fi
-
 nft delete table ip6 otbr 2>/dev/null || true
 
 if ! nft -f - <<EOF
@@ -230,7 +222,6 @@ then
     echo "ERROR: nft -f failed" >&2
     exit 1
 fi
-
 
 # ------------------------------------------------------------------
 # Punch a hole in Docker's default-deny IPv6 FORWARD policy.
