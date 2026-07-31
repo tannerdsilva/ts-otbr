@@ -82,20 +82,6 @@ sysctl -w net.ipv6.conf.default.forwarding=1         >/dev/null 2>&1 || true
 # Optional:
 # sysctl -w net.ipv6.conf.default.router_solicitations=0 >/dev/null 2>&1 || true
 
-# ==============================================================================
-# OTBR hardened nftables firewall (IPv6) + ipset compatibility layer
-# ==============================================================================
-# Design goals:
-#   • No Ethernet control-plane leakage onto the Thread radio
-#   • No routing loops between backbone and mesh
-#   • Strict anti-spoofing of Thread-sourced addresses arriving from Ethernet
-#   • Preserve normal Thread/Matter operation and intra-mesh relay
-#
-# Directionality:
-#   backbone → Thread  : strict (default-deny unsolicited unicast + selective multicast)
-#   Thread  → backbone : permissive
-#   local OUTPUT → Thread : block host-generated discovery & RAs
-# ==============================================================================
 
 ipset create -exist otbr-ingress-deny-src       hash:net family inet6
 ipset create -exist otbr-ingress-deny-src-swap  hash:net family inet6
@@ -112,7 +98,7 @@ fi
 
 nft delete table ip6 otbr 2>/dev/null || true
 
-nft -f - <<EOF
+if ! nft -f - <<EOF
 table ip6 otbr {
     set otbr-ingress-deny-src {
         type ipv6_addr
@@ -134,8 +120,6 @@ table ip6 otbr {
         flags interval
         auto-merge
     }
-
-    # TREL UDP ports — update elements at runtime without reloading rules
     set trel_ports {
         type inet_service
         comment "TREL UDP ports"
@@ -149,53 +133,35 @@ table ip6 otbr {
 
     chain input {
         type filter hook input priority filter; policy accept;
-
         iifname "lo" counter accept
         ct state invalid counter drop
-
-        # TREL: allow on backbone, reject on Thread
         iifname "${backbone_if}" udp dport @trel_ports counter accept comment "allow TREL from backbone"
         iifname "${backbone_if}" udp sport @trel_ports counter accept comment "allow TREL replies on backbone"
-        iifname "${thread_if}" udp dport @trel_ports counter reject comment "reject TREL on Thread"
-        iifname "${thread_if}" udp sport @trel_ports counter reject comment "reject TREL on Thread"
-
+        iifname "${thread_if}" udp dport @trel_ports counter drop comment "reject TREL on Thread"
+        iifname "${thread_if}" udp sport @trel_ports counter drop comment "reject TREL on Thread"
         iifname "${thread_if}" ct state established,related counter accept
-
         iifname "${thread_if}" icmpv6 type nd-router-advert counter drop comment "no RAs from Thread"
         iifname "${thread_if}" icmpv6 type { nd-router-solicit, nd-redirect } counter drop comment "no RS/redirect from Thread to host"
         iifname "${thread_if}" udp dport { 5353, 5355, 1900 } counter drop comment "no SD to host from Thread"
         iifname "${thread_if}" udp dport 61631 counter drop comment "no TMF to host"
         iifname "${thread_if}" icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop comment "no MLD from Thread"
         iifname "${thread_if}" meta pkttype { multicast, broadcast } counter drop comment "no multicast to host from Thread"
-
-        iifname "${thread_if}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } \\
-            ip6 hoplimit 255 limit rate 20/second burst 10 packets counter accept comment "allow ND NS/NA from Thread"
-
-        iifname "${thread_if}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } \\
-            ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept comment "ICMP errors from Thread OMR"
-        iifname "${thread_if}" icmpv6 type { echo-request, echo-reply } \\
-            ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept comment "echo from Thread OMR"
-
-        iifname "${thread_if}" ip6 saddr @otbr-ingress-allow-dst meta l4proto { tcp, udp } \\
-            ct state new counter accept comment "OMR unicast to host"
-
-        iifname "${thread_if}" counter log prefix "OTBR_INPUT_THR_DROP: " level warn reject comment "default deny input from Thread"
+        iifname "${thread_if}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 limit rate 20/second burst 10 packets counter accept comment "allow ND NS/NA from Thread"
+        iifname "${thread_if}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept comment "ICMP errors from Thread OMR"
+        iifname "${thread_if}" icmpv6 type { echo-request, echo-reply } ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept comment "echo from Thread OMR"
+        iifname "${thread_if}" ip6 saddr @otbr-ingress-allow-dst meta l4proto { tcp, udp } ct state new counter accept comment "OMR unicast to host"
+        iifname "${thread_if}" counter log prefix "OTBR_INPUT_THR_DROP " level warn drop comment "default deny input from Thread"
     }
 
     chain output {
         type filter hook output priority filter; policy accept;
-
         oifname "lo" counter accept
-
-        # TREL: allow on backbone, never onto Thread
         oifname "${backbone_if}" udp dport @trel_ports counter accept comment "allow TREL out backbone"
         oifname "${backbone_if}" udp sport @trel_ports counter accept comment "allow TREL out backbone"
         oifname "${thread_if}" udp dport @trel_ports counter drop comment "no TREL on Thread"
         oifname "${thread_if}" udp sport @trel_ports counter drop comment "no TREL on Thread"
-
         oifname "${backbone_if}" icmpv6 type nd-router-advert counter accept
         oifname "${backbone_if}" icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter accept
-
         oifname "${thread_if}" icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop
         oifname "${thread_if}" icmpv6 type nd-router-advert counter drop comment "no host RAs on Thread radio"
         oifname "${thread_if}" icmpv6 type { nd-router-solicit, nd-redirect } counter drop
@@ -214,34 +180,19 @@ table ip6 otbr {
 
     chain from_backbone_to_thread {
         ct state invalid counter drop
-
-        # TREL must never enter the mesh
-        udp dport @trel_ports counter reject comment "no TREL backbone to Thread"
-        udp sport @trel_ports counter reject comment "no TREL backbone to Thread"
-
-        icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, nd-redirect } \\
-            counter drop comment "no ND backbone to Thread"
-
-        icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } \\
-            counter drop comment "no MLD backbone to Thread"
-
+        udp dport @trel_ports counter drop comment "no TREL backbone to Thread"
+        udp sport @trel_ports counter drop comment "no TREL backbone to Thread"
+        icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, nd-redirect } counter drop comment "no ND backbone to Thread"
+        icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop comment "no MLD backbone to Thread"
         udp dport { 546, 547, 1900, 5350, 5351, 5353, 5355, 19788, 61631 } counter drop comment "no LAN control UDP to Thread"
-
         meta pkttype { broadcast, multicast } counter drop comment "no multicast backbone to Thread"
-
-        ip6 saddr @otbr-ingress-deny-src counter reject comment "drop Thread-sourced packets from Ethernet"
-        ip6 daddr fe80::/10 counter reject comment "drop link-local unicast from backbone"
-
+        ip6 saddr @otbr-ingress-deny-src counter drop comment "drop Thread-sourced packets from Ethernet"
+        ip6 daddr fe80::/10 counter drop comment "drop link-local unicast from backbone"
         ct state established,related accept
-
-        icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } \\
-            ip6 daddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
-        icmpv6 type { echo-request, echo-reply } \\
-            ip6 daddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
-
+        icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } ip6 daddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
+        icmpv6 type { echo-request, echo-reply } ip6 daddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
         ip6 daddr @otbr-ingress-allow-dst meta l4proto { tcp, udp } ct state new counter accept
-
-        counter log prefix "OTBR_BB2THR_DROP: " level warn reject comment "default deny backbone to Thread"
+        counter log prefix "OTBR_BB2THR_DROP " level warn drop comment "default deny backbone to Thread"
     }
 
     chain from_thread_to_thread {
@@ -256,11 +207,8 @@ table ip6 otbr {
 
     chain from_thread_to_backbone {
         ct state invalid counter drop
-
-        # TREL must never leave via the radio path
-        udp dport @trel_ports counter reject comment "no TREL Thread to backbone"
-        udp sport @trel_ports counter reject comment "no TREL Thread to backbone"
-
+        udp dport @trel_ports counter drop comment "no TREL Thread to backbone"
+        udp sport @trel_ports counter drop comment "no TREL Thread to backbone"
         icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop
         icmpv6 type nd-router-advert counter drop comment "no Thread RAs to backbone"
         icmpv6 type { nd-router-solicit, nd-redirect } counter drop comment "no RS/redirect Thread to backbone"
@@ -268,30 +216,19 @@ table ip6 otbr {
         udp sport 61631 counter drop
         udp dport { 1900, 5353, 5355, 546, 547, 5350, 5351, 19788 } counter drop
         meta pkttype { broadcast, multicast } counter drop comment "no multicast Thread to backbone"
-
-        ip6 saddr fe80::/10 counter reject comment "no link-local from Thread to backbone"
-
+        ip6 saddr fe80::/10 counter drop comment "no link-local from Thread to backbone"
         ct state established,related accept
-
-        icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } \\
-            ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
-        icmpv6 type { echo-request, echo-reply } \\
-            ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
-
-        icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } \\
-            ip6 hoplimit 255 ip6 saddr @otbr-ingress-allow-dst limit rate 20/second burst 10 packets counter accept
-
+        icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
+        icmpv6 type { echo-request, echo-reply } ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
+        icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 ip6 saddr @otbr-ingress-allow-dst limit rate 20/second burst 10 packets counter accept
         ip6 saddr @otbr-ingress-allow-dst counter accept
-
-        counter log prefix "OTBR_THR2BB_DROP: " level warn reject comment "default deny Thread to backbone"
+        counter log prefix "OTBR_THR2BB_DROP " level warn drop comment "default deny Thread to backbone"
     }
 }
 EOF
-
-nft_status=$?
-if [ "$nft_status" -ne 0 ]; then
-    echo "ERROR: nft failed with status ${nft_status}"
-    exit "$nft_status"
+then
+    echo "ERROR: nft -f failed" >&2
+    exit 1
 fi
 
 
