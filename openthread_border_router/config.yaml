@@ -32,9 +32,9 @@ options:
   firewall: true
   nat64: false
   beta: false
-  ula_prefix: ""
   custom_omr_prefix: ""
   custom_omr_preference: "low"
+  leader_weight: 66
   8080/tcp: null
   8081/tcp: null
 ports_description:
@@ -50,7 +50,7 @@ schema:
   firewall: bool
   nat64: bool
   beta: bool?
-  ula_prefix: str?
   custom_omr_prefix: str?
   custom_omr_preference: list(high|med|low)?
+  leaderweight: int
 startup: services

@@ -180,7 +180,7 @@ table ip6 otbr {
         meta pkttype { broadcast, multicast } counter drop comment "no multicast backbone to Thread"
         ip6 saddr @otbr-ingress-deny-src counter drop comment "drop Thread-sourced packets from Ethernet"
         ip6 daddr fe80::/10 counter drop comment "drop link-local unicast from backbone"
-        ct state established,related accept
+        ct state established,related counter accept
         icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } ip6 daddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
         icmpv6 type { echo-request, echo-reply } ip6 daddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
         ip6 daddr @otbr-ingress-allow-dst meta l4proto { tcp, udp } ct state new counter accept
@@ -342,19 +342,6 @@ python3 /usr/local/bin/migrate_otbr_settings.py \
     --flow-control "${migrate_flow_control}" \
     --data-dir /data/thread/
 
-# Optional suggested BR ULA prefix
-ula_prefix=""
-if bashio::config.has_value 'ula_prefix'; then
-    ula_prefix="$(bashio::config 'ula_prefix')"
-fi
-
-# Build the optional --ula-prefix argument
-ula_prefix_arg=""
-if bashio::var.has_value "${ula_prefix}"; then
-    ula_prefix_arg="--ula-prefix ${ula_prefix}"
-    bashio::log.info "Using suggested BR ULA prefix: ${ula_prefix}"
-fi
-
 bashio::log.info "Starting OTBR agent..."
 
 # shellcheck disable=SC2086
@@ -362,6 +349,5 @@ exec s6-notifyoncheck -d -s 300 -w 300 -n 0 stdbuf -oL \
     "/usr/sbin/otbr-agent" -I ${thread_if} -B "${backbone_if}" \
         --rest-listen-address "${otbr_rest_listen}" \
         -d${otbr_log_level_int} -v -s \
-        ${ula_prefix_arg} \
         "spinel+hdlc+uart://${device}?uart-baudrate=${baudrate}${flow_control}" \
         "trel://${backbone_if}"

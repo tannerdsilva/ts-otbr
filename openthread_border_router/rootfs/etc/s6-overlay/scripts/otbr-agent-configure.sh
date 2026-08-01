@@ -59,10 +59,6 @@ bashio::log.info "Setting OpenThread mDNS local hostname to ${mdns_localhostname
 ot-ctl mdns localhostname "${mdns_localhostname}"
 ot-ctl mdns enable
 
-# To avoid asymmetric link quality the TX power from the controller should not
-# exceed that of what other Thread routers devices typically use.
-ot-ctl txpower 6
-
 ot-ctl br enable
 
 # ==============================================================================
@@ -70,7 +66,6 @@ ot-ctl br enable
 # ==============================================================================
 if bashio::config.has_value 'custom_omr_prefix'; then
     DESIRED_PREFIX=$(bashio::config 'custom_omr_prefix')
-    PREFERENCE=$(bashio::config 'custom_omr_preference' 'med')   # default to med
 
     if [[ -n "$DESIRED_PREFIX" ]]; then
         bashio::log.info "Custom OMR prefix requested: ${DESIRED_PREFIX} (preference: ${PREFERENCE})"
@@ -89,17 +84,32 @@ if bashio::config.has_value 'custom_omr_prefix'; then
         if [[ "$CURRENT" == "$DESIRED_PREFIX" ]]; then
             bashio::log.info "✅ Custom OMR prefix already set to ${DESIRED_PREFIX}"
         else
-            bashio::log.info "Applying custom OMR prefix: ${DESIRED_PREFIX} with preference ${PREFERENCE}"
+            bashio::log.info "Applying custom OMR prefix: ${DESIRED_PREFIX}"
 
-            if ot-ctl br omrconfig custom "${DESIRED_PREFIX}" "${PREFERENCE}"; then
-                bashio::log.info "✅ Successfully applied custom OMR prefix: ${DESIRED_PREFIX} (${PREFERENCE})"
-                sleep 2
+            if ot-ctl br omrconfig custom "${DESIRED_PREFIX}" mid; then
+                bashio::log.info "✅ Successfully applied custom OMR prefix: ${DESIRED_PREFIX}"
             else
                 bashio::log.error "❌ Failed to apply custom OMR prefix"
             fi
         fi
     fi
 fi
+
+if bashio::config.has_value 'leader_weight'; then
+    LEADER_WEIGHT=$(bashio::config 'leader_weight')
+    if ot-ctl leaderweight $LEADER_WEIGHT; then
+    	bashio::log.info "✅ Successfully applied leader weight: ${LEADER_WEIGHT}"
+    else
+    	bashio::log.error "❌ Failed to apply custom leader weight"
+    fi
+fi
+
+# To avoid asymmetric link quality the TX power from the controller should not
+# exceed that of what other Thread routers devices typically use.
+ot-ctl txpower 6
+
+if ot-ctl thread start; then
+	bashio::log.info "✅ Successfully started Thread radio"
 
 # Re-sync TREL after br enable (port can change once border routing is up)
 sync_trel_port_to_firewall
