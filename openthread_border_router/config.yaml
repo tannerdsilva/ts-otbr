@@ -1,5 +1,5 @@
 ---
-version: 3.0.63
+version: 3.0.64
 breaking_versions: [3.0.0]
 slug: tanners_openthread_border_router
 name: Tanners OpenThread Border Router
@@ -33,7 +33,6 @@ options:
   nat64: false
   beta: false
   custom_omr_prefix: ""
-  custom_omr_preference: "low"
   leader_weight: 66
   8080/tcp: null
   8081/tcp: null
@@ -51,6 +50,5 @@ schema:
   nat64: bool
   beta: bool?
   custom_omr_prefix: str?
-  custom_omr_preference: list(high|med|low)?
   leaderweight: int
 startup: services

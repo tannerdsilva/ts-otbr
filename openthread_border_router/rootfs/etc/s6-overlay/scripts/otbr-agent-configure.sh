@@ -110,6 +110,10 @@ ot-ctl txpower 6
 
 if ot-ctl thread start; then
 	bashio::log.info "✅ Successfully started Thread radio"
+else
+	bashio::log.info "❌ Failed to start Thread radio"
+	return 15
+fi
 
 # Re-sync TREL after br enable (port can change once border routing is up)
 sync_trel_port_to_firewall

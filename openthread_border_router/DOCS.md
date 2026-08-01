@@ -70,7 +70,6 @@ App configuration:
 | network_device     | IP address and port to connect to a network-based RCP (see below) |
 | beta               | Enable beta mode to run a newer, experimental version of OpenThread Border Router |
 | custom_omr_prefix  | Force a specific Off-Mesh Routable (OMR) prefix (e.g. `fd42:0001::/64`). Leave empty for automatic behavior. |
-| custom_omr_preference | Preference for the custom OMR prefix: `high`, `med`, or `low`. Defaults to `low`. |
 
 > [!WARNING]
 > The OTBR expects the RCP connected radio to be on a reliable link such as
