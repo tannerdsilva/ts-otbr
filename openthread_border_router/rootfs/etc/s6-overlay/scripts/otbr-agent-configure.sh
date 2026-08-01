@@ -86,7 +86,7 @@ if bashio::config.has_value 'custom_omr_prefix'; then
         else
             bashio::log.info "Applying custom OMR prefix: ${DESIRED_PREFIX}"
 
-            if ot-ctl br omrconfig custom "${DESIRED_PREFIX}" mid; then
+            if ot-ctl br omrconfig custom "${DESIRED_PREFIX}" med; then
                 bashio::log.info "✅ Successfully applied custom OMR prefix: ${DESIRED_PREFIX}"
             else
                 bashio::log.error "❌ Failed to apply custom OMR prefix"
