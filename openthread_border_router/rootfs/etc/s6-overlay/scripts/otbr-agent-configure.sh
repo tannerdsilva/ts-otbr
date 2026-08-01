@@ -68,7 +68,7 @@ if bashio::config.has_value 'custom_omr_prefix'; then
     DESIRED_PREFIX=$(bashio::config 'custom_omr_prefix')
 
     if [[ -n "$DESIRED_PREFIX" ]]; then
-        bashio::log.info "Custom OMR prefix requested: ${DESIRED_PREFIX} (preference: ${PREFERENCE})"
+        bashio::log.info "Custom OMR prefix requested: ${DESIRED_PREFIX}"
 
         # Wait until ot-ctl is ready
         for i in {1..40}; do
