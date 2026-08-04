@@ -16,7 +16,6 @@ declare migrate_flow_control
 declare otbr_log_level_int
 declare otbr_rest_listen
 declare otbr_rest_listen_port
-declare ula_prefix
 
 # Cleanup unused configs
 if bashio::config.exists 'autoflash_firmware'; then
@@ -65,24 +64,6 @@ otbr_log_level_int="$(otbr_log_level_to_int)" \
 # shellcheck disable=SC2015
 mkdir -p /data/thread && ln -sft /var/lib /data/thread || bashio::exit.nok "Could not create directory /var/lib/thread to store Thread data."
 
-# We compile the OTBR with firewall support, so otbr-agent tries to update the
-# ipsets. Therefore create the ipsets always (even when the firewall is later
-# disabled) so otbr-agent never fails when it tries to manipulate them.
-
-# ==============================================================================
-# Early IPv6 defaults – any newly created interface (incl. wpan0) inherits these
-# ==============================================================================
-# This closes the race between interface creation and the later per-interface
-# waiter. The backbone interface is already up, so it is unaffected.
-sysctl -w net.ipv6.conf.default.accept_ra=0          >/dev/null 2>&1 || true
-sysctl -w net.ipv6.conf.default.accept_ra_defrtr=0   >/dev/null 2>&1 || true
-sysctl -w net.ipv6.conf.default.accept_ra_pinfo=0    >/dev/null 2>&1 || true
-sysctl -w net.ipv6.conf.default.forwarding=1         >/dev/null 2>&1 || true
-
-# Optional:
-# sysctl -w net.ipv6.conf.default.router_solicitations=0 >/dev/null 2>&1 || true
-
-
 ipset create -exist otbr-ingress-deny-src       hash:net family inet6
 ipset create -exist otbr-ingress-deny-src-swap  hash:net family inet6
 ipset create -exist otbr-ingress-allow-dst      hash:net family inet6
@@ -118,9 +99,9 @@ table ip6 otbr {
     }
 
     chain forward {
-        type filter hook forward priority mangle; policy accept;
-        oifname "${thread_if}" jump otbr_to_thread
-        iifname "${thread_if}" jump otbr_from_thread
+        type filter hook forward priority filter; policy accept;
+        counter oifname "${thread_if}" jump otbr_to_thread
+        counter iifname "${thread_if}" jump otbr_from_thread
     }
 
     chain input {
@@ -171,6 +152,7 @@ table ip6 otbr {
     }
 
     chain from_backbone_to_thread {
+		ip6 hoplimit <= 1 counter drop comment "do not forward packets with hoplimit = 1"
         ct state invalid counter drop
         udp dport @trel_ports counter drop comment "no TREL backbone to Thread"
         udp sport @trel_ports counter drop comment "no TREL backbone to Thread"
@@ -179,7 +161,8 @@ table ip6 otbr {
         udp dport { 546, 547, 1900, 5350, 5351, 5353, 5355, 19788, 61631 } counter drop comment "no LAN control UDP to Thread"
         meta pkttype { broadcast, multicast } counter drop comment "no multicast backbone to Thread"
         ip6 saddr @otbr-ingress-deny-src counter drop comment "drop Thread-sourced packets from Ethernet"
-        ip6 daddr fe80::/10 counter drop comment "drop link-local unicast from backbone"
+        ip6 daddr fe80::/10 counter drop comment "drop link-local unicast destination from backbone"
+        ip6 saddr fe80::/10 counter drop comment "drop link-local unicast sources from backbone"
         ct state established,related counter accept
         icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } ip6 daddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
         icmpv6 type { echo-request, echo-reply } ip6 daddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept
@@ -198,6 +181,7 @@ table ip6 otbr {
     }
 
     chain from_thread_to_backbone {
+		ip6 hoplimit <= 1 counter drop comment "do not forward packets with hoplimit = 1"
         ct state invalid counter drop
         udp dport @trel_ports counter drop comment "no TREL Thread to backbone"
         udp sport @trel_ports counter drop comment "no TREL Thread to backbone"
