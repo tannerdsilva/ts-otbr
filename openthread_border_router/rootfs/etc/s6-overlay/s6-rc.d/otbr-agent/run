@@ -116,7 +116,6 @@ table ip6 otbr {
         iifname "${thread_if}" icmpv6 type nd-router-advert counter drop comment "no RAs from Thread"
         iifname "${thread_if}" icmpv6 type { nd-router-solicit, nd-redirect } counter drop comment "no RS/redirect from Thread to host"
         iifname "${thread_if}" udp dport { 5353, 5355, 1900 } counter drop comment "no SD to host from Thread"
-        iifname "${thread_if}" udp dport 61631 counter drop comment "no TMF to host"
         iifname "${thread_if}" icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop comment "no MLD from Thread"
         iifname "${thread_if}" meta pkttype { multicast, broadcast } counter drop comment "no multicast to host from Thread"
         iifname "${thread_if}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 limit rate 20/second burst 10 packets counter accept comment "allow ND NS/NA from Thread"
@@ -142,7 +141,7 @@ table ip6 otbr {
         oifname "${thread_if}" udp sport 5353 counter drop comment "no mDNS from host to Thread"
         oifname "${thread_if}" udp dport 5355 meta pkttype multicast counter drop comment "no LLMNR to Thread"
         oifname "${thread_if}" udp dport 1900 meta pkttype multicast counter drop comment "no SSDP to Thread"
-        oifname "${thread_if}" udp dport { 546, 547, 5350, 5351, 19788, 61631 } counter drop comment "no DHCP/PCP/TMF to Thread"
+        oifname "${thread_if}" udp dport { 546, 547, 5350, 5351, 19788 } counter drop comment "no DHCP/PCP to Thread"
     }
 
     chain otbr_to_thread {
@@ -158,7 +157,7 @@ table ip6 otbr {
         udp sport @trel_ports counter drop comment "no TREL backbone to Thread"
         icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, nd-redirect } counter drop comment "no ND backbone to Thread"
         icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop comment "no MLD backbone to Thread"
-        udp dport { 546, 547, 1900, 5350, 5351, 5353, 5355, 19788, 61631 } counter drop comment "no LAN control UDP to Thread"
+        udp dport { 546, 547, 1900, 5350, 5351, 5353, 5355, 19788 } counter drop comment "no LAN control UDP to Thread"
         meta pkttype { broadcast, multicast } counter drop comment "no multicast backbone to Thread"
         ip6 saddr @otbr-ingress-deny-src counter drop comment "drop Thread-sourced packets from Ethernet"
         ip6 daddr fe80::/10 counter drop comment "drop link-local unicast destination from backbone"
@@ -188,8 +187,6 @@ table ip6 otbr {
         icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop
         icmpv6 type nd-router-advert counter drop comment "no Thread RAs to backbone"
         icmpv6 type { nd-router-solicit, nd-redirect } counter drop comment "no RS/redirect Thread to backbone"
-        udp dport 61631 counter drop
-        udp sport 61631 counter drop
         udp dport { 1900, 5353, 5355, 546, 547, 5350, 5351, 19788 } counter drop
         meta pkttype { broadcast, multicast } counter drop comment "no multicast Thread to backbone"
         ip6 saddr fe80::/10 counter drop comment "no link-local from Thread to backbone"

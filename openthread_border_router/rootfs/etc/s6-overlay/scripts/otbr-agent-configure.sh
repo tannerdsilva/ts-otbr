@@ -64,7 +64,7 @@ ot-ctl br enable
 # ==============================================================================
 # Custom OMR Prefix + Preference
 # ==============================================================================
-OMR_PREF=$(bashio::config 'custom_omr_preference')
+OMR_PREF=$(bashio::config 'custom_omr_priority')
 if bashio::config.has_value 'custom_omr_prefix'; then
     DESIRED_PREFIX=$(bashio::config 'custom_omr_prefix')
 
@@ -121,7 +121,7 @@ fi
 
 if bashio::config.has_value 'upgrade_threshold'; then
 	UPGRADE_THRESHOLD=$(bashio::config 'upgrade_threshold')
-	if ot-ctl upgradethreshold $UPGRADE_THRESHOLD; then
+	if ot-ctl routerupgradethreshold $UPGRADE_THRESHOLD; then
 		bashio::log.info "✅ Successfully applied upgrade threshold: ${UPGRADE_THRESHOLD}"
 	else
 		bashio::log.error "❌ Failed to apply upgrade threshold"
@@ -131,7 +131,7 @@ fi
 
 if bashio::config.has_value 'downgrade_threshold'; then
 	DOWNGRADE_THRESHOLD=$(bashio::config 'downgrade_threshold')
-	if ot-ctl downgradethreshold $DOWNGRADE_THRESHOLD; then
+	if ot-ctl routerdowngradethreshold $DOWNGRADE_THRESHOLD; then
 		bashio::log.info "✅ Successfully applied downgrade threshold: ${DOWNGRADE_THRESHOLD}"
 	else
 		bashio::log.error "❌ Failed to apply downgrade threshold"
