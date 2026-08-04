@@ -112,12 +112,16 @@ table ip6 otbr {
         iifname "${backbone_if}" udp sport @trel_ports counter accept comment "allow TREL replies on backbone"
         iifname "${thread_if}" udp dport @trel_ports counter drop comment "reject TREL on Thread"
         iifname "${thread_if}" udp sport @trel_ports counter drop comment "reject TREL on Thread"
+
+        # Explicitly allow Thread control traffic (MLE/TMF) to the host
+        iifname "${thread_if}" udp dport { 19788, 61631 } counter accept comment "allow Thread control (MLE/TMF) to host"
+
         iifname "${thread_if}" ct state established,related counter accept
         iifname "${thread_if}" icmpv6 type nd-router-advert counter drop comment "no RAs from Thread"
         iifname "${thread_if}" icmpv6 type { nd-router-solicit, nd-redirect } counter drop comment "no RS/redirect from Thread to host"
         iifname "${thread_if}" udp dport { 5353, 5355, 1900 } counter drop comment "no SD to host from Thread"
         iifname "${thread_if}" icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop comment "no MLD from Thread"
-        iifname "${thread_if}" meta pkttype { multicast, broadcast } counter drop comment "no multicast to host from Thread"
+        iifname "${thread_if}" meta pkttype { multicast, broadcast } counter drop comment "no multicast to host from Thread (except control above)"
         iifname "${thread_if}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 limit rate 20/second burst 10 packets counter accept comment "allow ND NS/NA from Thread"
         iifname "${thread_if}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept comment "ICMP errors from Thread OMR"
         iifname "${thread_if}" icmpv6 type { echo-request, echo-reply } ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept comment "echo from Thread OMR"
@@ -132,6 +136,11 @@ table ip6 otbr {
         oifname "${backbone_if}" udp sport @trel_ports counter accept comment "allow TREL out backbone"
         oifname "${thread_if}" udp dport @trel_ports counter drop comment "no TREL on Thread"
         oifname "${thread_if}" udp sport @trel_ports counter drop comment "no TREL on Thread"
+
+        # Explicitly allow Thread control traffic (MLE/TMF) from the host
+        oifname "${thread_if}" udp dport { 19788, 61631 } counter accept comment "allow Thread control (MLE/TMF) to Thread"
+        oifname "${thread_if}" udp sport { 19788, 61631 } counter accept comment "allow Thread control (MLE/TMF) from host"
+
         oifname "${backbone_if}" icmpv6 type nd-router-advert counter accept
         oifname "${backbone_if}" icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter accept
         oifname "${thread_if}" icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop
@@ -141,7 +150,7 @@ table ip6 otbr {
         oifname "${thread_if}" udp sport 5353 counter drop comment "no mDNS from host to Thread"
         oifname "${thread_if}" udp dport 5355 meta pkttype multicast counter drop comment "no LLMNR to Thread"
         oifname "${thread_if}" udp dport 1900 meta pkttype multicast counter drop comment "no SSDP to Thread"
-        oifname "${thread_if}" udp dport { 546, 547, 5350, 5351, 19788 } counter drop comment "no DHCP/PCP to Thread"
+        oifname "${thread_if}" udp dport { 546, 547, 5350, 5351 } counter drop comment "no DHCP/PCP to Thread"
     }
 
     chain otbr_to_thread {
@@ -151,13 +160,13 @@ table ip6 otbr {
     }
 
     chain from_backbone_to_thread {
-		ip6 hoplimit <= 1 counter drop comment "do not forward packets with hoplimit = 1"
+        ip6 hoplimit <= 1 counter drop comment "do not forward packets with hoplimit = 1"
         ct state invalid counter drop
         udp dport @trel_ports counter drop comment "no TREL backbone to Thread"
         udp sport @trel_ports counter drop comment "no TREL backbone to Thread"
         icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, nd-redirect } counter drop comment "no ND backbone to Thread"
         icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop comment "no MLD backbone to Thread"
-        udp dport { 546, 547, 1900, 5350, 5351, 5353, 5355, 19788 } counter drop comment "no LAN control UDP to Thread"
+        udp dport { 546, 547, 1900, 5350, 5351, 5353, 5355 } counter drop comment "no LAN control UDP to Thread"
         meta pkttype { broadcast, multicast } counter drop comment "no multicast backbone to Thread"
         ip6 saddr @otbr-ingress-deny-src counter drop comment "drop Thread-sourced packets from Ethernet"
         ip6 daddr fe80::/10 counter drop comment "drop link-local unicast destination from backbone"
@@ -180,14 +189,14 @@ table ip6 otbr {
     }
 
     chain from_thread_to_backbone {
-		ip6 hoplimit <= 1 counter drop comment "do not forward packets with hoplimit = 1"
+        ip6 hoplimit <= 1 counter drop comment "do not forward packets with hoplimit = 1"
         ct state invalid counter drop
         udp dport @trel_ports counter drop comment "no TREL Thread to backbone"
         udp sport @trel_ports counter drop comment "no TREL Thread to backbone"
         icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop
         icmpv6 type nd-router-advert counter drop comment "no Thread RAs to backbone"
         icmpv6 type { nd-router-solicit, nd-redirect } counter drop comment "no RS/redirect Thread to backbone"
-        udp dport { 1900, 5353, 5355, 546, 547, 5350, 5351, 19788 } counter drop
+        udp dport { 1900, 5353, 5355, 546, 547, 5350, 5351 } counter drop
         meta pkttype { broadcast, multicast } counter drop comment "no multicast Thread to backbone"
         ip6 saddr fe80::/10 counter drop comment "no link-local from Thread to backbone"
         ct state established,related accept
