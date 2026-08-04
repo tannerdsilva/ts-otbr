@@ -64,6 +64,7 @@ ot-ctl br enable
 # ==============================================================================
 # Custom OMR Prefix + Preference
 # ==============================================================================
+OMR_PREF=$(bashio::config 'custom_omr_preference')
 if bashio::config.has_value 'custom_omr_prefix'; then
     DESIRED_PREFIX=$(bashio::config 'custom_omr_prefix')
 
@@ -85,14 +86,27 @@ if bashio::config.has_value 'custom_omr_prefix'; then
             bashio::log.info "✅ Custom OMR prefix already set to ${DESIRED_PREFIX}"
         else
             bashio::log.info "Applying custom OMR prefix: ${DESIRED_PREFIX}"
-
-            if ot-ctl br omrconfig custom "${DESIRED_PREFIX}" med; then
-                bashio::log.info "✅ Successfully applied custom OMR prefix: ${DESIRED_PREFIX}"
+            
+            if ot-ctl br omrconfig custom "${DESIRED_PREFIX}" "${OMR_PREF}"; then
+                bashio::log.info "✅ Successfully applied custom OMR prefix: ${DESIRED_PREFIX} (priority ${OMR_PREF})"
             else
                 bashio::log.error "❌ Failed to apply custom OMR prefix"
+                return 11
             fi
         fi
     fi
+fi
+
+if ot-ctl br rioprf "${OMR_PREF}"; then
+	bashio::log.info "✅ Successfully applied rioprf: ${OMR_PREF}"
+else
+	bashio::log.error "❌ Failed to apply custom rioprf value"
+fi
+
+if ot-ctl br routeprf "${OMR_PREF}"; then
+	bashio::log.info "✅ Successfully applied routeprf: ${OMR_PREF}"
+else
+	bashio::log.error "❌ Failed to apply custom routeprf value"
 fi
 
 if bashio::config.has_value 'leader_weight'; then
@@ -101,7 +115,28 @@ if bashio::config.has_value 'leader_weight'; then
     	bashio::log.info "✅ Successfully applied leader weight: ${LEADER_WEIGHT}"
     else
     	bashio::log.error "❌ Failed to apply custom leader weight"
+    	return 12
     fi
+fi
+
+if bashio::config.has_value 'upgrade_threshold'; then
+	UPGRADE_THRESHOLD=$(bashio::config 'upgrade_threshold')
+	if ot-ctl upgradethreshold $UPGRADE_THRESHOLD; then
+		bashio::log.info "✅ Successfully applied upgrade threshold: ${UPGRADE_THRESHOLD}"
+	else
+		bashio::log.error "❌ Failed to apply upgrade threshold"
+		return 13
+	fi
+fi
+
+if bashio::config.has_value 'downgrade_threshold'; then
+	DOWNGRADE_THRESHOLD=$(bashio::config 'downgrade_threshold')
+	if ot-ctl downgradethreshold $DOWNGRADE_THRESHOLD; then
+		bashio::log.info "✅ Successfully applied downgrade threshold: ${DOWNGRADE_THRESHOLD}"
+	else
+		bashio::log.error "❌ Failed to apply downgrade threshold"
+		return 14
+	fi
 fi
 
 # To avoid asymmetric link quality the TX power from the controller should not
