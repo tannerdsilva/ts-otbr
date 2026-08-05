@@ -117,12 +117,19 @@ table ip6 otbr {
         iifname "${thread_if}" udp dport { 19788, 61631 } counter accept comment "allow Thread control (MLE/TMF) to host"
 
         iifname "${thread_if}" ct state established,related counter accept
+
+        # Allow Neighbor Discovery (NS/NA) - including multicast - before the multicast drop
+        iifname "${thread_if}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 limit rate 20/second burst 10 packets counter accept comment "allow ND NS/NA from Thread"
+
         iifname "${thread_if}" icmpv6 type nd-router-advert counter drop comment "no RAs from Thread"
         iifname "${thread_if}" icmpv6 type { nd-router-solicit, nd-redirect } counter drop comment "no RS/redirect from Thread to host"
+
+        # Allow unicast SRP (service registration) from Thread - before the mDNS drop
+        iifname "${thread_if}" udp dport 5353 meta pkttype unicast counter accept comment "allow unicast SRP from Thread"
         iifname "${thread_if}" udp dport { 5353, 5355, 1900 } counter drop comment "no SD to host from Thread"
+
         iifname "${thread_if}" icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop comment "no MLD from Thread"
         iifname "${thread_if}" meta pkttype { multicast, broadcast } counter drop comment "no multicast to host from Thread (except control above)"
-        iifname "${thread_if}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 limit rate 20/second burst 10 packets counter accept comment "allow ND NS/NA from Thread"
         iifname "${thread_if}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept comment "ICMP errors from Thread OMR"
         iifname "${thread_if}" icmpv6 type { echo-request, echo-reply } ip6 saddr @otbr-ingress-allow-dst limit rate 10/second burst 5 packets counter accept comment "echo from Thread OMR"
         iifname "${thread_if}" ip6 saddr @otbr-ingress-allow-dst meta l4proto { tcp, udp } ct state new counter accept comment "OMR unicast to host"
@@ -146,11 +153,18 @@ table ip6 otbr {
         oifname "${thread_if}" icmpv6 type { mld-listener-query, mld-listener-report, mld2-listener-report } counter drop
         oifname "${thread_if}" icmpv6 type nd-router-advert counter drop comment "no host RAs on Thread radio"
         oifname "${thread_if}" icmpv6 type { nd-router-solicit, nd-redirect } counter drop
+
+        # Allow Neighbor Discovery (NS/NA) - including multicast - before the multicast drop
+        oifname "${thread_if}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 counter accept comment "allow ND NS/NA to Thread"
+
+        # Allow unicast SRP replies to Thread - before the mDNS drop
+        oifname "${thread_if}" udp sport 5353 meta pkttype unicast counter accept comment "allow unicast SRP replies to Thread"
         oifname "${thread_if}" udp dport 5353 counter drop comment "no mDNS to Thread"
         oifname "${thread_if}" udp sport 5353 counter drop comment "no mDNS from host to Thread"
         oifname "${thread_if}" udp dport 5355 meta pkttype multicast counter drop comment "no LLMNR to Thread"
         oifname "${thread_if}" udp dport 1900 meta pkttype multicast counter drop comment "no SSDP to Thread"
         oifname "${thread_if}" udp dport { 546, 547, 5350, 5351 } counter drop comment "no DHCP/PCP to Thread"
+        oifname "${thread_if}" meta pkttype { multicast, broadcast } counter drop
     }
 
     chain otbr_to_thread {
