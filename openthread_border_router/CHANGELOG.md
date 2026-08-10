@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.73
+
+- Align routing-manager corrections with the PR fork: publish the actual OMR prefix instead of the broad ULA catch-all, and tighten the `kUlaPrefix` external-route to /64 so multi-BR peer detection recognizes a stable OMR as ULA reachability (eliminates the fc00::/7 forwarding loop on multi-border-router meshes)
+
 ## 3.0.2
 
 - Honor the configured `otbr_log_level` for the OTBR web interface (previously always logged at info level)
