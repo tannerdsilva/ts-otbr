@@ -13,6 +13,15 @@
 # BBR primary and avoid concentrating registrations on an arbitrary secondary.
 
 MODE=$(bashio::config 'srp_server_mode' 'auto')
+# bashio's schema-based resolution is unreliable for string-list options edited
+# in /data/options.json (observed: returns default while mdns_guard bools resolve
+# fine). Read the option directly from the options file as the authoritative source.
+if command -v jq >/dev/null 2>&1 && [ -r /data/options.json ]; then
+  MODE_FILE=$(jq -r '.srp_server_mode // "auto"' /data/options.json 2>/dev/null || echo auto)
+  case "$MODE_FILE" in
+    auto|always|off|leader) MODE="$MODE_FILE" ;;
+  esac
+fi
 
 if [ "$MODE" = "auto" ]; then
   # Ensure Thread's automatic SRP-server arbitration remains on.
