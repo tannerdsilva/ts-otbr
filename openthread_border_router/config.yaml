@@ -32,10 +32,12 @@ options:
   firewall: true
   nat64: false
   mdns_guard: true
+  mdns_guard_extra: true
   mdns_guard_in_rate: "40/second"
   mdns_guard_in_burst: 120
   mdns_guard_out_rate: "30/second"
   mdns_guard_out_burst: 60
+  srp_server_mode: auto
   beta: false
   custom_omr_prefix: ""
   custom_omr_priority: "med"
@@ -57,10 +59,12 @@ schema:
   firewall: bool
   nat64: bool
   mdns_guard: bool
+  mdns_guard_extra: bool
   mdns_guard_in_rate: str?
   mdns_guard_in_burst: int?
   mdns_guard_out_rate: str?
   mdns_guard_out_burst: int?
+  srp_server_mode: list(auto|always|off|leader)?
   beta: bool?
   custom_omr_prefix: str?
   custom_omr_priority: list(high|med|low)?

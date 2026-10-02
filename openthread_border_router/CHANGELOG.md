@@ -2,14 +2,24 @@
 
 ## 3.0.74 (unreleased)
 
-- Add `mdns_guard` (default **on**): nft `limit`-based rate caps for multicast mDNS
-  (224.0.0.251 / ff02::fb) on the backbone interface, in/out (40/s b120 in, 30/s b60 out
-  by default; tunable via options). Stops an mDNS amplification storm from saturating the
-  HA stack on the BR host; unicast mDNS/SRP and wpan0 Thread rules are untouched.
-  Validated live 2026-10-02 on ha-tbr-164: host mDNS emission 698→54 pps, >413k
-  multicast-mDNS packets dropped at the output chain alone. Install via new
-  `otbr-mdns-guard` oneshot s6 service. NOTE: `hashlimit rate N/second` is broken on
-  nftables v1.1.3 (syntax error at `/`); the guard uses the `limit` + accept/drop pair.
+- Add `mdns_guard` (default **on**) + `mdns_guard_extra` (default **on**, LLMNR 5355 +
+  SSDP 1900 multicast caps): nft `limit`-based rate caps for multicast mDNS/LLMNR/SSDP
+  on the backbone interface, in/out (40/s b120 in, 30/s b60 out by default; tunable via
+  options). Stops multicast amplification storms from saturating the HA stack on the BR
+  host; unicast SRP/mDNS and wpan0 Thread rules are untouched. Validated live 2026-10-02
+  on ha-tbr-164 (host mDNS emission 698→54 pps, >413k multicast-mDNS packets dropped at
+  the output chain alone). Install via new `otbr-mdns-guard` oneshot s6 service. NOTE:
+  `hashlimit rate N/second` is broken on nftables v1.1.3; the guard uses the
+  `limit` + accept/drop pair.
+- Add `srp_server_mode` (`auto` default | `always` | `off` | `leader`): new
+  `otbr-srp-policy` longrun service. `leader` pins the Thread SRP server to the
+  **BBR primary** (re-checked every 30s → automatic failover on BBR handover), so the
+  whole fabric's service registrations ride the designed primary instead of an arbitrary
+  secondary (fleet audit 2026-10-02: 938 registrations were on a secondary BBR). `auto`
+  preserves current Thread arbitration.
+- Operator tooling added under `tools/`: `correlate.sh` + `fleet_watch.sh` (5-min cron
+  telemetry: switch 1/0/3 flaps, Pi mDNS, per-BR role/BBR/SRP/hosts/partition/guard-drop
+  with drift + SRP-asymmetry alerts).
 
 ## 3.0.73
 
