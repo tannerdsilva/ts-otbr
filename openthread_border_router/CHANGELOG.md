@@ -1,6 +1,15 @@
 # Changelog
 
-## 3.0.74 (unreleased)
+## 3.0.75 (unreleased)
+
+- **Release-blocking fix:** mark the new s6 files executable (`otbr-mdns-guard/up`,
+  `otbr-srp-policy/run`, `otbr-mdns-guard.sh`, `mcast-guard/00-mdns-guard.sh`) — they
+  shipped 0644, which makes s6 abort container init (app started → exited 1). s6 executes
+  these paths directly and requires 0755 like every other run/up script. Verified live on
+  ha-tbr-164: after the mode fix the app starts cleanly with guard + SRP policy both active.
+  (Follows `7a16878` in-tree as release 3.0.75 so fleet rollout carries the fix.)
+
+## 3.0.74 (released 2026-10-02)
 
 - Add `mdns_guard` (default **on**) + `mdns_guard_extra` (default **on**, LLMNR 5355 +
   SSDP 1900 multicast caps): nft `limit`-based rate caps for multicast mDNS/LLMNR/SSDP
