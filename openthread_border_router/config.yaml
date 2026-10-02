@@ -1,5 +1,5 @@
 ---
-version: 3.0.73
+version: 3.0.74
 breaking_versions: [3.0.0]
 slug: tanners_openthread_border_router
 name: Tanners OpenThread Border Router
@@ -31,6 +31,11 @@ options:
   otbr_log_level: notice
   firewall: true
   nat64: false
+  mdns_guard: true
+  mdns_guard_in_rate: "40/second"
+  mdns_guard_in_burst: 120
+  mdns_guard_out_rate: "30/second"
+  mdns_guard_out_burst: 60
   beta: false
   custom_omr_prefix: ""
   custom_omr_priority: "med"
@@ -51,6 +56,11 @@ schema:
   otbr_log_level: list(debug|info|notice|warning|error|critical|alert|emergency)
   firewall: bool
   nat64: bool
+  mdns_guard: bool
+  mdns_guard_in_rate: str?
+  mdns_guard_in_burst: int?
+  mdns_guard_out_rate: str?
+  mdns_guard_out_burst: int?
   beta: bool?
   custom_omr_prefix: str?
   custom_omr_priority: list(high|med|low)?

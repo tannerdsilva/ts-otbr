@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.0.74 (unreleased)
+
+- Add `mdns_guard` (default **on**): nft `limit`-based rate caps for multicast mDNS
+  (224.0.0.251 / ff02::fb) on the backbone interface, in/out (40/s b120 in, 30/s b60 out
+  by default; tunable via options). Stops an mDNS amplification storm from saturating the
+  HA stack on the BR host; unicast mDNS/SRP and wpan0 Thread rules are untouched.
+  Validated live 2026-10-02 on ha-tbr-164: host mDNS emission 698→54 pps, >413k
+  multicast-mDNS packets dropped at the output chain alone. Install via new
+  `otbr-mdns-guard` oneshot s6 service. NOTE: `hashlimit rate N/second` is broken on
+  nftables v1.1.3 (syntax error at `/`); the guard uses the `limit` + accept/drop pair.
+
 ## 3.0.73
 
 - Align routing-manager corrections with the PR fork: publish the actual OMR prefix instead of the broad ULA catch-all, and tighten the `kUlaPrefix` external-route to /64 so multi-BR peer detection recognizes a stable OMR as ULA reachability (eliminates the fc00::/7 forwarding loop on multi-border-router meshes)
