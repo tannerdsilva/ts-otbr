@@ -53,7 +53,7 @@ while true; do
     nft delete table inet otbr_backbone_qos 2>/dev/null || true
     if nft -f - <<EOF
 table inet otbr_backbone_qos {
-  chain mark {
+  chain trel_mark {
     type filter hook postrouting priority mangle; policy accept;
     oifname "${ITF}" meta l4proto udp udp sport ${PORT} ip6 dscp set ${DSCP} counter
   }

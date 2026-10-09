@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.77 (unreleased)
+
+- **Release-blocking fix:** `otbr-backbone-qos` could never install its marking rule. The nft
+  chain was named `mark`, which is a **reserved nftables keyword**, so `chain mark {` failed to
+  parse and `nft -f` rejected the entire ruleset — the service logged
+  `otbr-backbone-qos: failed to install marking rule (trel port <n>)` every 30 s and stamped
+  nothing. Renamed the chain to `trel_mark`. Verified on ha-tbr-164 with `nft -c -f -`
+  (compiles clean on nftables v1.1.3) and re-verified after fleet deploy. Caught by the 3.0.76
+  trial on ha-tbr-164 — 3.0.76 shipped the broken ruleset to no host, so nothing regressed.
+
 ## 3.0.76 (unreleased)
 
 - Add `backbone_qos` (default **on**) + `backbone_qos_dscp` (default `cs5`): new
