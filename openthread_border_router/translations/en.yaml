@@ -34,6 +34,17 @@ configuration:
     description: >-
       Enable IPv6 to IPv4 network address translation. This allows Thread
       devices to communicate with devices on the Internet.
+  backbone_qos:
+    name: Backbone QoS (TREL DSCP marking)
+    description: >-
+      Mark Thread backbone (TREL) egress with a DSCP class so the switch can keep
+      the Thread control/data plane out of the best-effort queue when it shares
+      trunks with video. Marks only; no effect until the switch honors the class.
+  backbone_qos_dscp:
+    name: Backbone QoS DSCP class
+    description: >-
+      DSCP class stamped on TREL egress (default cs5). Must match the class the
+      switch maps to the protected queue.
   beta:
     name: Beta
     description: >-

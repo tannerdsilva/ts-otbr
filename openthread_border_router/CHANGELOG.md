@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.76 (unreleased)
+
+- Add `backbone_qos` (default **on**) + `backbone_qos_dscp` (default `cs5`): new
+  `otbr-backbone-qos` longrun service. Stamps Thread backbone (TREL) egress on the backbone
+  interface with a DSCP class so the AV switch can keep the Thread control/data plane out of
+  the best-effort queue when trunks/queues are shared with video (NVX). Default class `cs5`
+  (40) — chosen after an sFlow capture showed NVX already uses CS4 (32), so TREL must take a
+  distinct class. Marks only — never
+  drops or shapes (multicast caps stay in `otbr-mdns-guard`); the rule is installed once and
+  re-installed only when the TREL UDP port changes, so it self-heals across BR role changes.
+  Inert until the switch is told to honor the class (`classofservice ip-dscp-mapping <dscp>
+  <tc>` + `classofservice trust ip-dscp` on the path carrying the Thread backbone).
+
 ## 3.0.75 (unreleased)
 
 - **Release-blocking fix:** mark the new s6 files executable (`otbr-mdns-guard/up`,
