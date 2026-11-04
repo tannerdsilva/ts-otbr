@@ -1,8 +1,13 @@
 #!/bin/bash
 set -e
 
-# Check if openthread socket exists
+# Check that the agent's CLI actually answers, not merely that the socket
+# file exists. The socket is bound before the daemon begins serving, and a
+# bare `test -S` let dependent oneshots race the CLI and die on ECONNRESET.
 test -S /run/openthread-wpan0.sock
+
+# Exercise the CLI (serialized by the ot-ctl wrapper).
+timeout 5 /usr/local/bin/ot-ctl state >/dev/null 2>&1
 
 # Check REST API port is open
 mapfile -t < /tmp/otbr-agent-rest-api

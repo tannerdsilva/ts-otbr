@@ -5,7 +5,36 @@
 # Configure OTBR depending on add-on settings
 # ==============================================================================
 
-ot-ctl trel enable
+# otbr-agent's CLI daemon serves a single session at a time; the ot-ctl
+# wrapper in /usr/local/bin serializes callers. Retry here as well so a
+# transient reset can never abort this oneshot (which would stop the container).
+wait_for_cli() {
+    local i
+    for i in $(seq 1 90); do
+        if ot-ctl state >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    bashio::log.error "otbr-agent CLI did not respond within 90s"
+    return 1
+}
+
+ot_ctl() {
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        if ot-ctl "$@"; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    bashio::log.error "ot-ctl $* failed after 5 attempts"
+    return 1
+}
+
+wait_for_cli || return 1
+
+ot_ctl trel enable
 
 # ------------------------------------------------------------------
 # Sync TREL UDP port into nftables set ip6 otbr trel_ports
@@ -17,7 +46,7 @@ sync_trel_port_to_firewall() {
 
     # Wait for ot-ctl to report a numeric TREL port
     for i in {1..30}; do
-        trel_port="$(ot-ctl trel port 2>/dev/null | head -n1 | tr -d '[:space:]')"
+        trel_port="$(ot_ctl trel port 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
         if [[ "${trel_port}" =~ ^[0-9]+$ ]]; then
             break
         fi
@@ -42,7 +71,7 @@ sync_trel_port_to_firewall() {
         bashio::log.info "Synced TREL port ${trel_port} into nft set ip6 otbr trel_ports"
     else
         bashio::log.error "Failed to update nft set ip6 otbr trel_ports with port ${trel_port}"
-        return 1
+        return 0
     fi
 }
 
@@ -50,16 +79,16 @@ sync_trel_port_to_firewall
 
 if bashio::config.true 'nat64'; then
     bashio::log.info "Enabling NAT64."
-    ot-ctl nat64 enable
-    ot-ctl dns server upstream enable
+    ot_ctl nat64 enable
+    ot_ctl dns server upstream enable
 fi
 
 mdns_localhostname="$(hostname)-otbr"
 bashio::log.info "Setting OpenThread mDNS local hostname to ${mdns_localhostname}."
-ot-ctl mdns localhostname "${mdns_localhostname}"
-ot-ctl mdns enable
+ot_ctl mdns localhostname "${mdns_localhostname}"
+ot_ctl mdns enable
 
-ot-ctl br enable
+ot_ctl br enable
 
 # ==============================================================================
 # Custom OMR Prefix + Preference
@@ -71,39 +100,30 @@ if bashio::config.has_value 'custom_omr_prefix'; then
     if [[ -n "$DESIRED_PREFIX" ]]; then
         bashio::log.info "Custom OMR prefix requested: ${DESIRED_PREFIX}"
 
-        # Wait until ot-ctl is ready
-        for i in {1..40}; do
-            if ot-ctl state >/dev/null 2>&1; then
-                break
-            fi
-            sleep 1
-        done
-
         # Check if already set correctly
-        CURRENT=$(ot-ctl br omrprefix local 2>/dev/null | awk '{print $2}' || true)
+        CURRENT=$(ot_ctl br omrprefix local 2>/dev/null | awk '{print $2}' || true)
 
         if [[ "$CURRENT" == "$DESIRED_PREFIX" ]]; then
             bashio::log.info "✅ Custom OMR prefix already set to ${DESIRED_PREFIX}"
         else
             bashio::log.info "Applying custom OMR prefix: ${DESIRED_PREFIX}"
             
-            if ot-ctl br omrconfig custom "${DESIRED_PREFIX}" "${OMR_PREF}"; then
+            if ot_ctl br omrconfig custom "${DESIRED_PREFIX}" "${OMR_PREF}"; then
                 bashio::log.info "✅ Successfully applied custom OMR prefix: ${DESIRED_PREFIX} (priority ${OMR_PREF})"
             else
                 bashio::log.error "❌ Failed to apply custom OMR prefix"
-                return 11
             fi
         fi
     fi
 fi
 
-if ot-ctl br rioprf "${OMR_PREF}"; then
+if ot_ctl br rioprf "${OMR_PREF}"; then
 	bashio::log.info "✅ Successfully applied rioprf: ${OMR_PREF}"
 else
 	bashio::log.error "❌ Failed to apply custom rioprf value"
 fi
 
-if ot-ctl br routeprf "${OMR_PREF}"; then
+if ot_ctl br routeprf "${OMR_PREF}"; then
 	bashio::log.info "✅ Successfully applied routeprf: ${OMR_PREF}"
 else
 	bashio::log.error "❌ Failed to apply custom routeprf value"
@@ -111,44 +131,43 @@ fi
 
 if bashio::config.has_value 'leader_weight'; then
     LEADER_WEIGHT=$(bashio::config 'leader_weight')
-    if ot-ctl leaderweight $LEADER_WEIGHT; then
+    if ot_ctl leaderweight $LEADER_WEIGHT; then
     	bashio::log.info "✅ Successfully applied leader weight: ${LEADER_WEIGHT}"
     else
     	bashio::log.error "❌ Failed to apply custom leader weight"
-    	return 12
     fi
 fi
 
 if bashio::config.has_value 'upgrade_threshold'; then
 	UPGRADE_THRESHOLD=$(bashio::config 'upgrade_threshold')
-	if ot-ctl routerupgradethreshold $UPGRADE_THRESHOLD; then
+	if ot_ctl routerupgradethreshold $UPGRADE_THRESHOLD; then
 		bashio::log.info "✅ Successfully applied upgrade threshold: ${UPGRADE_THRESHOLD}"
 	else
 		bashio::log.error "❌ Failed to apply upgrade threshold"
-		return 13
 	fi
 fi
 
 if bashio::config.has_value 'downgrade_threshold'; then
 	DOWNGRADE_THRESHOLD=$(bashio::config 'downgrade_threshold')
-	if ot-ctl routerdowngradethreshold $DOWNGRADE_THRESHOLD; then
+	if ot_ctl routerdowngradethreshold $DOWNGRADE_THRESHOLD; then
 		bashio::log.info "✅ Successfully applied downgrade threshold: ${DOWNGRADE_THRESHOLD}"
 	else
 		bashio::log.error "❌ Failed to apply downgrade threshold"
-		return 14
 	fi
 fi
 
 # To avoid asymmetric link quality the TX power from the controller should not
 # exceed that of what other Thread routers devices typically use.
-ot-ctl txpower 6
+ot_ctl txpower 6
 
-if ot-ctl thread start; then
+if ot_ctl thread start; then
 	bashio::log.info "✅ Successfully started Thread radio"
 else
-	bashio::log.info "❌ Failed to start Thread radio"
+	bashio::log.error "❌ Failed to start Thread radio"
 	return 15
 fi
 
 # Re-sync TREL after br enable (port can change once border routing is up)
 sync_trel_port_to_firewall
+
+exit 0

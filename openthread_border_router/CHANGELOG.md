@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.79 (unreleased)
+
+- Fix a boot race where `otbr-agent-configure` exited non-zero and s6 stopped the
+  container. OTBR's CLI daemon accepts a single session and closes the current
+  one on every new accept, so concurrent `ot-ctl` callers
+  (`otbr-agent-configure`, `otbr-srp-policy`, `otbr-backbone-qos`,
+  `otbr-route-guard`) reset each other with `read: Connection reset by peer`.
+  Every caller now goes through `/usr/local/bin/ot-ctl`, which serializes access
+  with `flock`; the configure oneshot also waits for a responsive CLI and
+  retries transient failures instead of aborting.
+- The agent readiness check now exercises `ot-ctl state` rather than only
+  testing that the CLI socket file exists.
+- `otbr-wpan-sysctl` waits for the IPv6 sysctl files (not just the interface
+  directory), then re-applies and verifies the values, fixing the
+  `accept_ra = unreadable` case on reboot.
+
 ## 3.0.78 (unreleased)
 
 - Bump OTBR pins to upstream v2026.09.0 (stable, `fd872ab9`) / v2026.10.0 (beta, `cb4bdae2`),

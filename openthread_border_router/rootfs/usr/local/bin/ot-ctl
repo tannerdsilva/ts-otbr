@@ -1,0 +1,33 @@
+#!/bin/bash
+# Serialize access to otbr-agent's CLI socket.
+#
+# otbr-agent's CliDaemon accepts a single session (listen(backlog=1)) and, on
+# every new accept, closes the session that is currently open. During boot
+# otbr-agent-configure, otbr-srp-policy, otbr-backbone-qos and otbr-route-guard
+# all talk to ot-ctl at the same time, so one client's command gets aborted
+# with "read: Connection reset by peer". When that happens inside
+# otbr-agent-configure (a oneshot), s6-rc tears the whole container down.
+#
+# Hold a process-wide lock for the duration of each CLI conversation so only
+# one client can own the daemon session at a time. The timeout bounds a wedged
+# agent so boot can never hang on the lock or on a stuck command.
+set -u
+
+real=/usr/sbin/ot-ctl
+lock=/run/otbr-ctl.lock
+
+if [[ ! -x "${real}" ]]; then
+    echo "ot-ctl wrapper: ${real} not found" >&2
+    exit 127
+fi
+
+exec 9>"${lock}" || exec "${real}" "$@"
+
+# Bound non-interactive calls so a wedged agent cannot stall boot; keep
+# interactive sessions (a TTY on stdin) alive until the user exits.
+if [[ -t 0 ]]; then
+    flock -w 30 9 "${real}" "$@"
+else
+    flock -w 30 9 timeout 15 "${real}" "$@"
+fi
+exit $?
