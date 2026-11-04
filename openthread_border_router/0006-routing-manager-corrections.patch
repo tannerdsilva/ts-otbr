@@ -1,17 +1,17 @@
 diff --git a/src/core/border_router/routing_manager.cpp b/src/core/border_router/routing_manager.cpp
-index 6be8b9002..8dfeb1a25 100644
+index 133e121..5457da4 100644
 --- a/src/core/border_router/routing_manager.cpp
 +++ b/src/core/border_router/routing_manager.cpp
-@@ -650,7 +650,7 @@ bool RoutingManager::NetworkDataContainsUlaRoute(void) const
+@@ -680,7 +680,7 @@ bool RoutingManager::NetworkDataContainsUlaRoute(void) const
  
      while (Get<NetworkData::Leader>().GetNext(iterator, routeConfig) == kErrorNone)
      {
--        if (routeConfig.mStable && RoutePublisher::GetUlaPrefix().ContainsPrefix(routeConfig.GetPrefix()))
-+        if (routeConfig.mStable && routeConfig.GetPrefix().GetLength() == 64 && RoutePublisher::GetUlaPrefix().ContainsPrefix(routeConfig.GetPrefix()))
+-        if (routeConfig.mStable && RoutePublisher::GetUlaPrefix().IsCoveredBy(routeConfig.GetPrefix()))
++        if (routeConfig.mStable && routeConfig.GetPrefix().GetLength() == 64 && routeConfig.GetPrefix().IsCoveredBy(RoutePublisher::GetUlaPrefix()))
          {
              contains = true;
              break;
-@@ -1943,7 +1943,7 @@ exit:
+@@ -2077,7 +2077,7 @@ exit:
  
  const otIp6Prefix RoutingManager::RoutePublisher::kUlaPrefix = {
      {{{0xfc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}},
@@ -20,7 +20,7 @@ index 6be8b9002..8dfeb1a25 100644
  };
  
  RoutingManager::RoutePublisher::RoutePublisher(Instance &aInstance)
-@@ -1995,9 +1995,10 @@ void RoutingManager::RoutePublisher::DeterminePrefixFor(State aState, Ip6::Prefi
+@@ -2129,9 +2129,10 @@ void RoutingManager::RoutePublisher::DeterminePrefixFor(State aState, Ip6::Prefi
      case kDoNotPublish:
      case kPublishDefault:
          // `Clear()` will set the prefix to `::/0`.
@@ -32,7 +32,7 @@ index 6be8b9002..8dfeb1a25 100644
          break;
      }
  }
-@@ -2026,6 +2027,12 @@ void RoutingManager::RoutePublisher::UpdatePublishedRoute(State aNewState)
+@@ -2160,6 +2161,12 @@ void RoutingManager::RoutePublisher::UpdatePublishedRoute(State aNewState)
      routeConfig.mAdvPio     = mAdvPioFlag;
      routeConfig.mStable     = true;
      DeterminePrefixFor(aNewState, routeConfig.GetPrefix());

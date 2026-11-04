@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.0.78 (unreleased)
+
+- Bump OTBR pins to upstream v2026.09.0 (stable, `fd872ab9`) / v2026.10.0 (beta, `cb4bdae2`),
+  matching home-assistant/app-openthread-border-router at 3.3.0.
+- Drop patches `0001-rest-SO_REUSEADDR` and `0002-nat64-handle-ipv4-options`: both changes are
+  upstream as of v2026.09.0, and `patch` refuses to re-apply them.
+- Rebase `0003`, `0004`, `0006` onto the new OpenThread submodule `2a8b4a57`: the BR ULA prefix now
+  uses `NetworkPrefix::InitFrom()`, and peer detection follows the upstream
+  `ContainsPrefix()` → `IsCoveredBy()` rename (`route.IsCoveredBy(kUlaPrefix)`, preserving the
+  previous direction). `0005` applies unchanged.
+
 ## 3.0.77 (unreleased)
 
 - **Release-blocking fix:** `otbr-backbone-qos` could never install its marking rule. The nft

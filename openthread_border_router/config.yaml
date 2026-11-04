@@ -1,5 +1,5 @@
 ---
-version: 3.0.77
+version: 3.0.78
 breaking_versions: [3.0.0]
 slug: tanners_openthread_border_router
 name: Tanners OpenThread Border Router
@@ -21,6 +21,7 @@ host_uts: true
 privileged:
   - IPC_LOCK
   - NET_ADMIN
+  - NET_RAW
 devices:
   - /dev/net/tun
 init: false
@@ -46,6 +47,7 @@ options:
   leader_weight: 72
   upgrade_threshold: 8
   downgrade_threshold: 24
+ports:
   8080/tcp: null
   8081/tcp: null
 ports_description:

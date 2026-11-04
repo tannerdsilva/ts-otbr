@@ -1,5 +1,5 @@
 diff --git a/src/agent/realmain.cpp b/src/agent/realmain.cpp
-index e1e05e1c..c421085c 100644
+index 2a47643..4065b2c 100644
 --- a/src/agent/realmain.cpp
 +++ b/src/agent/realmain.cpp
 @@ -39,6 +39,7 @@
@@ -10,15 +10,15 @@ index e1e05e1c..c421085c 100644
  #include <unistd.h>
  
  #include <openthread/logging.h>
-@@ -81,6 +82,7 @@ enum
-     OTBR_OPT_SYSLOG_DISABLE          = 's',
+@@ -88,6 +89,7 @@ enum
      OTBR_OPT_VERSION                 = 'V',
      OTBR_OPT_SHORTMAX                = 128,
+     OTBR_OPT_DATA_PATH,
 +    OTBR_OPT_ULA_PREFIX,
      OTBR_OPT_RADIO_VERSION,
      OTBR_OPT_AUTO_ATTACH,
      OTBR_OPT_REST_LISTEN_ADDR,
-@@ -105,6 +107,7 @@ static const struct option kOptions[] = {
+@@ -113,6 +115,7 @@ static const struct option kOptions[] = {
      {"help", no_argument, nullptr, OTBR_OPT_HELP},
      {"thread-ifname", required_argument, nullptr, OTBR_OPT_INTERFACE_NAME},
      {"verbose", no_argument, nullptr, OTBR_OPT_VERBOSE},
@@ -26,25 +26,25 @@ index e1e05e1c..c421085c 100644
      {"syslog-disable", no_argument, nullptr, OTBR_OPT_SYSLOG_DISABLE},
      {"version", no_argument, nullptr, OTBR_OPT_VERSION},
      {"radio-version", no_argument, nullptr, OTBR_OPT_RADIO_VERSION},
-@@ -162,6 +165,9 @@ static void PrintHelp(const char *aProgramName)
-     fprintf(stderr,
+@@ -171,6 +174,9 @@ static void PrintHelp(const char *aProgramName)
              "Usage: %s [-I interfaceName] [-B backboneIfName] [-d DEBUG_LEVEL] [-v] [-s] [--auto-attach[=0/1]] "
              "RADIO_URL [RADIO_URL]\n"
+             "         --data-path        Path of directory to store data.\n"
 +            "     --ula-prefix           Optional suggested /48 BR ULA prefix (e.g. fdf0:1234:5678::/48).\n"
 +            "                            Used instead of random generation on first launch (when no valid\n"
 +            "                            prefix exists in settings). Persisted for future launches.\n"
              "     -I, --thread-ifname    Name of the Thread network interface (default: " DEFAULT_INTERFACE_NAME ").\n"
              "     -B, --backbone-ifname  Name of the backbone network interfaces (can be specified multiple times).\n"
              "     -d, --debug-level      The log level (EMERG=0, ALERT=1, CRIT=2, ERR=3, WARNING=4, NOTICE=5, INFO=6, "
-@@ -250,6 +256,7 @@ static int realmain(int argc, char *argv[])
-     const char               *restListenAddress = "127.0.0.1";
+@@ -260,6 +266,7 @@ static int realmain(int argc, char *argv[])
      int                       restListenPort    = kPortNumber;
+     const char               *dataPath          = "";
      std::vector<const char *> radioUrls;
 +    const char               *suggestedUlaPrefix = nullptr;
      std::vector<const char *> backboneInterfaceNames;
      long                      parseResult;
  
-@@ -270,6 +277,11 @@ static int realmain(int argc, char *argv[])
+@@ -281,6 +288,11 @@ static int realmain(int argc, char *argv[])
      {
          switch (opt)
          {
@@ -56,7 +56,7 @@ index e1e05e1c..c421085c 100644
          case OTBR_OPT_BACKBONE_INTERFACE_NAME:
              backboneInterfaceNames.push_back(optarg);
              otbrLogNotice("Backbone interface: %s", optarg);
-@@ -358,7 +370,12 @@ static int realmain(int argc, char *argv[])
+@@ -373,7 +385,12 @@ static int realmain(int argc, char *argv[])
      }
  #endif
  
